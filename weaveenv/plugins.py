@@ -57,6 +57,7 @@ class VirtualEnvManager(object):
                 logger.exception("Unable to install requirements for %s.",
                                  self.venv_home)
                 return False
+        return True
 
     def activate(self):
         script = os.path.join(self.venv_home, "bin", "activate_this.py")
@@ -64,6 +65,7 @@ class VirtualEnvManager(object):
 
     def clean(self):
         shutil.rmtree(self.venv_home)
+
 
 class BasePlugin(object):
     def __init__(self, src):
