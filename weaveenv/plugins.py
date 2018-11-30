@@ -92,15 +92,19 @@ class InstalledPlugin(BasePlugin):
     def is_installed(self):
         return os.path.isdir(self.src)
 
+    def clean(self):
+        if os.path.isdir(self.src):
+            shutil.rmtree(self.src)
+
     def get_plugin_dir(self):
         return self.src
 
 
 class GitPlugin(BasePlugin):
-    def __init__(self, src):
+    def __init__(self, src, cloned_location=None):
         super().__init__(src)
         self.clone_url = src
-        self.cloned_location = None
+        self.cloned_location = cloned_location
 
     def unique_id(self):
         return get_plugin_id(self.clone_url)
@@ -114,10 +118,6 @@ class GitPlugin(BasePlugin):
 
         git.Repo.clone_from(self.clone_url, self.cloned_location)
         return InstalledPlugin(self.cloned_location)
-
-    def clean(self):
-        if self.cloned_location and os.path.isdir(self.cloned_location):
-            shutil.rmtree(self.cloned_location)
 
     def is_installed(self):
         return False
@@ -170,9 +170,12 @@ class PluginInstallManager(object):
             return plugin
         except Exception as e:
             logger.exception("Installation of plugin failed. Rolling back.")
-            # git_plugin.clean()
-            # venv.clean()
+            self.uninstall(plugin_info["id"])
             return None
+
+    def uninstall(self, plugin_id):
+        InstalledPlugin(os.path.join(self.plugin_dir, plugin_id)).clean()
+        VirtualEnvManager(os.path.join(self.venv_dir, plugin_id)).clean()
 
     def get_plugin_path(self, plugin_id):
         return os.path.join(self.plugin_dir, plugin_id)
@@ -290,14 +293,14 @@ class PluginManager(object):
         plugin_dir = os.path.join(base_path, "plugins")
         venv_dir = os.path.join(base_path, "venv")
         self.install_manager = PluginInstallManager(plugin_dir, venv_dir)
-        self.plugins= {}
+        self.plugins = {}
 
     def start(self):
         github = GithubRepositoryLister("HomeWeave")
         self.plugins = {}
         for repo in github.list_plugins():
             plugin_info = self.extract_plugin_info(repo)
-            self.plugins[repo["id"]] = repo
+            self.plugins[repo["id"]] = plugin_info
 
     def get_registrations(self):
         return [
@@ -305,6 +308,7 @@ class PluginManager(object):
             ("POST", "activate", self.activate),
             ("POST", "deactivate", self.deactivate),
             ("POST", "install", self.install),
+            ("POST", "uninstall", self.uninstall),
         ]
 
     def list(self, params):
@@ -327,6 +331,17 @@ class PluginManager(object):
         if not plugin:
             return 400, {"error": "Failed to install library."}
 
+        updated_plugin_info = self.extract_plugin_info(plugin_info)
+        self.plugins[plugin_id] = updated_plugin_info
+        return 200, self.convert_plugin(updated_plugin_info)
+
+    def uninstall(self, params):
+        plugin_id = params["id"]
+        plugin_info = self.plugins.get(plugin_id)
+        if not plugin_info:
+            return 404, {"error": "Not found."}
+
+        self.install_manager.uninstall(plugin_id)
         updated_plugin_info = self.extract_plugin_info(plugin_info)
         self.plugins[plugin_id] = updated_plugin_info
         return 200, self.convert_plugin(updated_plugin_info)
