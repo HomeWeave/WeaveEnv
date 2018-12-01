@@ -161,14 +161,14 @@ class PluginInstallManager(object):
 
             # Configure a new VirtualEnv.
             requirements_file = os.path.join(plugin.get_plugin_dir(),
-                                            "requirements.txt")
+                                             "requirements.txt")
             if not os.path.isfile(requirements_file):
                 requirements_file = None
             if not venv.install(requirements_file=requirements_file):
                 raise Exception("Unable to install virtualenv.")
 
             return plugin
-        except Exception as e:
+        except Exception:
             logger.exception("Installation of plugin failed. Rolling back.")
             self.uninstall(plugin_info["id"])
             return None
