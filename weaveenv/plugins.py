@@ -260,28 +260,9 @@ class PluginExecutionManager(object):
 
 class GithubRepositoryLister(object):
     def __init__(self, organization):
-        self.organization = None #GitHub().organization(organization)
+        self.organization = GitHub().organization(organization)
 
     def list_plugins(self):
-        yield {
-            'id': '02989b3581044833800b17b2367865e7',
-            'name': 'PhilipsHue',
-            'url': 'https://github.com/HomeWeave/PhilipsHue.git',
-            'description': None
-        }
-        yield {
-            'id': 'e9f8e89b91a190b54d7522baedebd11c',
-            'name': 'Dashboard',
-            'url': 'https://github.com/HomeWeave/Dashboard.git',
-            'description': None
-        }
-        yield {
-            'id': 'da2fbdfcbf684bc1fe08d91a93ef2cec',
-            'name': 'Linux',
-            'url': 'https://github.com/HomeWeave/Linux.git',
-            'description': None
-        }
-        return
         for repo in self.organization.repositories():
             contents = repo.directory_contents("/", return_as=dict)
             plugin_id = get_plugin_id(repo.clone_url)
