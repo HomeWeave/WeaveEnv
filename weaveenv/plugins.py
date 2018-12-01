@@ -185,6 +185,79 @@ class PluginInstallManager(object):
         return os.path.isdir(venv_dir)
 
 
+class PluginExecutionManager(object):
+    def __init__(self, plugin_dir, venv_dir, database):
+        self.plugin_dir = plugin_dir
+        self.venv_dir = venv_dir
+        self.database = database
+        self.active_plugins = {}
+
+    def is_enabled(self, plugin_id):
+        try:
+            return self.get_plugin_data(plugin_id).enabled
+        except ValueError:
+            return False
+
+    def enable(self, plugin_id):
+        try:
+            plugin_data = self.get_plugin_data(plugin_id)
+        except ValueError:
+            return False
+
+        if plugin_data.enabled:
+            return True
+        plugin_data.enabled = True
+        plugin_data.save()
+        return True
+
+    def disable(self, plugin_id):
+        try:
+            plugin_data = self.get_plugin_data(plugin_id)
+        except ValueError:
+            return False
+
+        if not plugin_data.enabled:
+            return True
+        plugin_data.enabled = False
+        plugin_data.save()
+        return True
+
+    def is_active(self, plugin_id):
+        return plugin_id in self.active_plugins
+
+    def activate(self, plugin_info):
+        plugin_id = plugin_info["id"]
+
+        if not self.is_enabled(plugin_id):
+            return False
+
+        if self.is_active(plugin_id):
+            return True
+
+        venv_dir = os.path.join(self.venv_dir, plugin_id)
+        plugin_data = self.get_plugin_data(plugin_id)
+        service = plugin_info["cls"](plugin_data.app_secret_token, {}, venv_dir)
+
+        # TODO: Read timeout & config (above) from plugin.json.
+        if not run_plugin(service, timeout=30):
+            return False
+
+        logger.info("Started plugin: %s", plugin_info["name"])
+        self.active_plugins[plugin_id] = service
+
+    def deactivate(self, plugin_id):
+        if not self.is_active(plugin_id):
+            return True
+
+        service = self.active_plugins[plugin_id]
+        stop_plugin(service)
+        # TODO: Get the name of the plugin.
+        logger.info("Stopped plugin: %s", service)
+
+    def get_plugin_data(self, plugin_id):
+        return self.database.query(plugin_id)
+
+
 class GithubRepositoryLister(object):
     def __init__(self, organization):
         self.organization = None #GitHub().organization(organization)
