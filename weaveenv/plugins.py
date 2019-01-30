@@ -149,9 +149,6 @@ class PluginInstallManager(object):
         venv_dir = os.path.join(self.plugin_dir, plugin_id)
         return os.path.isdir(plugin_dir) and os.path.isdir(venv_dir)
 
-    def is_enabled(self, plugin_id):
-        return False
-
     def install(self, plugin_info):
         git_plugin = GitPlugin(plugin_info["url"])
 
@@ -295,11 +292,13 @@ class GithubRepositoryLister(object):
 
 
 class PluginStateFilter(object):
-    def __init__(self, install_manager):
+    def __init__(self, install_manager, execution_manager):
         self.install_manager = install_manager
+        self.execution_manager = execution_manager
 
     def filter(self, obj):
         obj["installed"] = self.install_manager.is_installed(obj["id"])
+        obj["active"] = self.execution_manager.is_active(obj["id"])
         obj["enabled"] = self.install_manager.is_enabled(obj["id"])
 
         if obj["installed"]:
@@ -388,14 +387,14 @@ class PluginManager(object):
         ]
 
     def list(self, params):
-        res = {k: self.convert_plugin(v) for k, v in self.plugins.items()}
+        res = [self.convert_plugin(v) for v in self.plugins.values()]
         return 200, res
 
     def activate(self, params):
-        pass
+        return 200, {}
 
     def deactivate(self, params):
-        pass
+        return 200, {}
 
     def install(self, params):
         plugin_id = params["id"]
@@ -437,7 +436,8 @@ class PluginManager(object):
         return 200, self.convert_plugin(plugin_info)
 
     def convert_plugin(self, plugin):
-        fields = ["id", "name", "description", "url", "installed", "enabled"]
+        fields = ["id", "name", "description", "url", "installed", "enabled",
+                  "active"]
         res = {x: plugin[x] for x in fields}
 
         optional_fields = ["errors"]
