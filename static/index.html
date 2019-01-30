@@ -1,1 +1,86 @@
-Test
+<html>
+    <body>
+        <div id="app"></div>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/vue@2.5.22/dist/vue.js"></script>
+        <script type="text/x-template" id="plugin_template">
+            <div>
+                <h2>Plugins</h2>
+                <div>
+                    <div v-for="p in plugins">
+                        <div v-bind:data-plugin-id="p.id">
+                            <h3><a v-bind:href="p.plugin_url">{{p.name}}</a></h3>
+                            <p>{{p.description}}</p>
+                            <div v-if="!p.installed">
+                                <button v-on:click="install(p.id)">Install</button>
+                            </div>
+                            <div v-else>
+                                <button v-on:click="uninstall(p.id)">Remove</button>
+                            </div>
+
+                            <div v-if="p.installed && !p.enabled">
+                                Token:
+                                <input type="text" v-model="p.token"/>
+                                <button v-on:click="enable(p)">Enable</button>
+                            </div>
+                            <div v-else-if="p.installed">
+                                <button v-on:click="disable(p.id)">Disable</button>
+                                Status: {{p.activated ? "Running": "Not running"}}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </script>
+        <script>
+            function list() {
+                return $.get("/api/plugins/");
+            }
+
+            function postJSON(url, json) {
+                return $.ajax({
+                    type: 'POST',
+                    url: url,
+                    data: JSON.stringify(json),
+                    contentType: "application/json"
+                });
+            }
+
+            function enable(plugin) {
+                return postJSON("/api/plugins/token",
+                                {id: plugin.id, token: plugin.token})
+                    .then(function(resp) {
+                        return postJSON("/api/plugins/enable", {id: plugin.id});
+                    });
+            }
+
+            function disable(pluginId) {
+                return postJSON("/api/plugins/deactivate", {id: pluginId});
+            }
+
+            function install(pluginId) {
+                return postJSON("/api/plugins/install", {id: pluginId});
+            }
+
+            function uninstall(pluginId) {
+                return postJSON("/api/plugins/uninstall", {id: pluginId});
+            }
+
+            $(function() {
+                $.get("/api/plugins/").done(function(resp) {
+                    var app = new Vue({
+                        el: '#app',
+                        template: $("#plugin_template").html(),
+                        data: {plugins: resp},
+                        methods: {
+                            enable: enable,
+                            disable: disable,
+                            install: install,
+                            uninstall: uninstall
+                        }
+                    });
+                });
+            });
+        </script>
+    </body>
+</html>
