@@ -20,4 +20,4 @@ def handle_main():
     plugin_manager.start()
     http = WeaveHTTPServer(http_modules)
 
-    http.run(port=15000, host="", debug=True, daemon=True)
+    http.run(port=15000, host="")
