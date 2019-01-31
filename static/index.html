@@ -47,11 +47,14 @@
             }
 
             function enable(plugin) {
-                return postJSON("/api/plugins/token",
-                                {id: plugin.id, token: plugin.token})
-                    .then(function(resp) {
-                        return postJSON("/api/plugins/enable", {id: plugin.id});
-                    });
+                var promise = $.when(null);
+                if (plugin.token && plugin.token.trim().length) {
+                    promise = postJSON("/api/plugins/token",
+                                       {id: plugin.id, token: plugin.token});
+                }
+                return promise.then(function(resp) {
+                    return postJSON("/api/plugins/activate", {id: plugin.id});
+                });
             }
 
             function disable(pluginId) {
