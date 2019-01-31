@@ -31,8 +31,8 @@ class PluginData(BaseModel):
 
 
 class PluginsDatabase(object):
-    def __init__(self, path):
-        self.path = path
+    def __init__(self, path=None):
+        self.path = path or get_db_path()
         self.conn = SqliteDatabase(self.path)
 
     def start(self):
