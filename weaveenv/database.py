@@ -16,7 +16,7 @@ def get_db_path():
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
-    return os.path.join(weave_base, "db")
+    return os.path.join(weave_base, "weaveenv.db")
 
 
 class BaseModel(Model):
