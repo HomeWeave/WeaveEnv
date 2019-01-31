@@ -200,25 +200,14 @@ class PluginExecutionManager(object):
         return plugin.enabled and (token is not None and len(token) > 0)
 
     def enable(self, plugin_id):
-        try:
-            plugin_data = self.get_plugin_data(plugin_id)
-        except ValueError:
-            return False
+        plugin_data = self.get_plugin_data(plugin_id)
 
-        if plugin_data.enabled:
-            return True
         plugin_data.enabled = True
         plugin_data.save()
         return True
 
     def disable(self, plugin_id):
-        try:
-            plugin_data = self.get_plugin_data(plugin_id)
-        except ValueError:
-            return False
-
-        if not plugin_data.enabled:
-            return True
+        plugin_data = self.get_plugin_data(plugin_id)
         plugin_data.enabled = False
         plugin_data.save()
         return True
@@ -230,7 +219,7 @@ class PluginExecutionManager(object):
         plugin_id = plugin_info["id"]
 
         if not self.is_enabled(plugin_id):
-            raise ValueError("Plugin is not enabled.")
+            raise ValueError("Plugin is not enabled or token is not set.")
 
         if self.is_active(plugin_id):
             return True
@@ -391,9 +380,37 @@ class PluginManager(object):
         return 200, res
 
     def activate(self, params):
-        return 200, {}
+        plugin_id = params["id"]
+        plugin_info = self.plugins.get(plugin_id)
+        if not plugin_info:
+            return 404, {"error": "Not found."}
+
+        try:
+            self.execution_manager.enable(plugin_id)
+            self.execution_manager.activate(plugin_id)
+        except ValueError as e:
+            return 400, {"error": str(e)}
+
+        updated_plugin_info = self.extract_plugin_info(plugin_info)
+        self.plugins[plugin_id] = updated_plugin_info
+        return 200, self.convert_plugin(updated_plugin_info)
 
     def deactivate(self, params):
+        plugin_id = params["id"]
+        plugin_info = self.plugins.get(plugin_id)
+        if not plugin_info:
+            return 404, {"error": "Not found."}
+
+        try:
+            self.execution_manager.disable(plugin_id)
+            self.execution_manager.deactivate(plugin_id)
+        except ValueError as e:
+            return 400, {"error": str(e)}
+
+        updated_plugin_info = self.extract_plugin_info(plugin_info)
+        self.plugins[plugin_id] = updated_plugin_info
+        return 200, self.convert_plugin(updated_plugin_info)
+
         return 200, {}
 
     def install(self, params):
