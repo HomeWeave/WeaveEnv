@@ -288,7 +288,7 @@ class PluginStateFilter(object):
     def filter(self, obj):
         obj["installed"] = self.install_manager.is_installed(obj["id"])
         obj["active"] = self.execution_manager.is_active(obj["id"])
-        obj["enabled"] = self.install_manager.is_enabled(obj["id"])
+        obj["enabled"] = self.execution_manager.is_enabled(obj["id"])
 
         if obj["installed"]:
             obj["install_path"] = \
@@ -359,11 +359,17 @@ class PluginManager(object):
         self.plugins = {}
 
     def start(self):
+        self.database.start()
         github = GithubRepositoryLister("HomeWeave")
         self.plugins = {}
         for repo in github.list_plugins():
             plugin_info = self.extract_plugin_info(repo)
             self.plugins[repo["id"]] = plugin_info
+
+            try:
+                self.database.query(repo["id"])
+            except ValueError:
+                self.database.insert(app_id=repo["id"])
 
     def get_registrations(self):
         return [
@@ -466,7 +472,7 @@ class PluginManager(object):
 
     def extract_plugin_info(self, plugin_info):
         filters = [
-            PluginStateFilter(self.install_manager),
+            PluginStateFilter(self.install_manager, self.execution_manager),
             PluginInfoFilter(),
         ]
         for filt in filters:
