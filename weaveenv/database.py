@@ -26,7 +26,7 @@ class BaseModel(Model):
 
 class PluginData(BaseModel):
     app_id = CharField(unique=True)
-    app_secret_token = CharField()
+    app_secret_token = CharField(null=True)
     enabled = BooleanField(default=False)
 
 
