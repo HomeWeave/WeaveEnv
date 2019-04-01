@@ -9,16 +9,6 @@ from peewee import DoesNotExist
 proxy = Proxy()
 
 
-def get_db_path():
-    weave_base = appdirs.user_data_dir("homeweave")
-    try:
-        os.makedirs(weave_base)
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise
-    return os.path.join(weave_base, "weaveenv.db")
-
-
 class BaseModel(Model):
     class Meta(object):
         database = proxy
@@ -28,12 +18,12 @@ class PluginData(BaseModel):
     app_id = CharField(unique=True)
     app_secret_token = CharField(null=True)
     enabled = BooleanField(default=False)
+    is_remote = BooleanField(default=False)
 
 
 class PluginsDatabase(object):
-    def __init__(self, path=None):
-        self.path = path or get_db_path()
-        self.conn = SqliteDatabase(self.path)
+    def __init__(self, path):
+        self.conn = SqliteDatabase(path)
 
     def start(self):
         proxy.initialize(self.conn)

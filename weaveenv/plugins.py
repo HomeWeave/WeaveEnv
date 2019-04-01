@@ -349,10 +349,10 @@ class PluginInfoFilter(object):
 
 
 class PluginManager(object):
-    def __init__(self, base_path):
+    def __init__(self, base_path, plugins_db):
         plugin_dir = os.path.join(base_path, "plugins")
         venv_dir = os.path.join(base_path, "venv")
-        self.database = PluginsDatabase(os.path.join(base_path, "db"))
+        self.database = plugins_db
         self.install_manager = PluginInstallManager(plugin_dir, venv_dir)
         self.execution_manager = PluginExecutionManager(plugin_dir, venv_dir,
                                                         self.database)
