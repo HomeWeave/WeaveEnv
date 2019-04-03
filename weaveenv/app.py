@@ -68,8 +68,12 @@ def handle_weave_launch():
     venv = VirtualEnvManager(venv_path)
     venv.activate()
 
-    filt = PluginInfoFilter()
-    plugin_info = filt.filter(dict(installed=True, install_path=plugin_dir))
+    raw_info = {
+        "installed": True,
+        "install_path": plugin_dir,
+        "name": os.path.basename(plugin_dir),
+    }
+    plugin_info = PluginInfoFilter().filter(raw_info)
     app = plugin_info["cls"](token, plugin_info["config"], venv_path)
 
     signal.signal(signal.SIGTERM, lambda x, y: app.on_service_stop())
