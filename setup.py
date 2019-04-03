@@ -24,6 +24,7 @@ setup(
             'weave-env = weaveenv.app:handle_main',
             'weave-messaging-token = weaveenv.app:handle_messaging_token',
             'weave-launch = weaveenv.app:handle_weave_launch',
+            'discover-messaging-server = weaveenv.app:handle_discover',
         ]
     }
 )

@@ -12,6 +12,7 @@ from weaveenv.database import PluginsDatabase
 from weaveenv.http import WeaveHTTPServer
 from weaveenv.plugins import PluginManager, get_plugin_id, VirtualEnvManager
 from weaveenv.plugins import PluginInfoFilter
+from weavelib.messaging import WeaveConnection
 
 
 logging.basicConfig()
@@ -81,3 +82,8 @@ def handle_weave_launch():
 
     app.before_service_start()
     app.on_service_start()
+
+
+def handle_discover():
+    conn = WeaveConnection.discover()
+    print(conn.sock)
