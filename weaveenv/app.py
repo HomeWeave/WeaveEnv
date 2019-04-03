@@ -3,11 +3,15 @@ eventlet.monkey_patch()  # NOLINT
 
 import logging
 import os
+import signal
 import sys
+
+import appdirs
 
 from weaveenv.database import PluginsDatabase
 from weaveenv.http import WeaveHTTPServer
-from weaveenv.plugins import PluginManager, get_plugin_id
+from weaveenv.plugins import PluginManager, get_plugin_id, VirtualEnvManager
+from weaveenv.plugins import PluginInfoFilter
 
 
 logging.basicConfig()
@@ -51,3 +55,25 @@ def handle_messaging_token():
         print(plugin_data.app_secret_token)
     else:
         print("Supported operations: 'get' and 'set'")
+
+
+def handle_weave_launch():
+    plugin_dir = sys.argv[1]
+    os.chdir(plugin_dir)
+    sys.path.append(plugin_dir)
+
+    token = sys.stdin.readline().strip()
+
+    venv_path = sys.argv[2]
+    venv = VirtualEnvManager(venv_path)
+    venv.activate()
+
+    filt = PluginInfoFilter()
+    plugin_info = filt.filter(dict(installed=True, install_path=plugin_dir))
+    app = plugin_info["cls"](token, plugin_info["config"], venv_path)
+
+    signal.signal(signal.SIGTERM, lambda x, y: app.on_service_stop())
+    signal.signal(signal.SIGINT, lambda x, y: app.on_service_stop())
+
+    app.before_service_start()
+    app.on_service_start()
