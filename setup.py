@@ -21,8 +21,8 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'weave-env = app:handle_main',
-            'weave-messaging-token = app:handle_messaging_token',
+            'weave-env = weaveenv.app:handle_main',
+            'weave-messaging-token = weaveenv.app:handle_messaging_token',
         ]
     }
 )
