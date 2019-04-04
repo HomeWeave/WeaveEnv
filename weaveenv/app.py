@@ -75,7 +75,7 @@ def handle_weave_launch():
         "name": os.path.basename(plugin_dir),
     }
     plugin_info = PluginInfoFilter().filter(raw_info)
-    app = plugin_info["cls"](token, plugin_info["config"], venv_path)
+    app = plugin_info["service_cls"](token, venv_path)
 
     signal.signal(signal.SIGTERM, lambda x, y: app.on_service_stop())
     signal.signal(signal.SIGINT, lambda x, y: app.on_service_stop())
