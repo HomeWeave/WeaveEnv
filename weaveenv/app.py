@@ -96,4 +96,4 @@ def handle_weave_launch():
 
 def handle_discover():
     conn = WeaveConnection.discover()
-    print(conn.sock)
+    print(conn.default_host, conn.default_port)
