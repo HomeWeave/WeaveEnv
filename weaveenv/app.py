@@ -8,11 +8,13 @@ import sys
 
 import appdirs
 
+from weavelib.messaging import WeaveConnection
+from weavelib.services.service_base import MessagingEnabled
+
 from weaveenv.database import PluginsDatabase
 from weaveenv.http import WeaveHTTPServer
 from weaveenv.plugins import PluginManager, get_plugin_id, VirtualEnvManager
 from weaveenv.plugins import PluginInfoFilter
-from weavelib.messaging import WeaveConnection
 
 
 logging.basicConfig()
@@ -75,7 +77,15 @@ def handle_weave_launch():
         "name": os.path.basename(plugin_dir),
     }
     plugin_info = PluginInfoFilter().filter(raw_info)
-    app = plugin_info["service_cls"](token, venv_path)
+
+    kwargs = {"venv_dir": venv_path}
+
+    if issubclass(plugin_info["service_cls"], MessagingEnabled):
+        # Discover messaging
+        kwargs["conn"] = None  # TODO: Discover for plugins except messaging.
+        kwargs["auth_token"] = token
+
+    app = plugin_info["service_cls"](**kwargs)
 
     signal.signal(signal.SIGTERM, lambda x, y: app.on_service_stop())
     signal.signal(signal.SIGINT, lambda x, y: app.on_service_stop())
