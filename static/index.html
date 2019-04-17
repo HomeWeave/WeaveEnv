@@ -19,8 +19,6 @@
                             </div>
 
                             <div v-if="p.installed && !p.enabled">
-                                Token:
-                                <input type="text" v-model="p.token"/>
                                 <button v-on:click="enable(p)">Enable</button>
                             </div>
                             <div v-else-if="p.installed">
@@ -47,14 +45,7 @@
             }
 
             function enable(plugin) {
-                var promise = $.when(null);
-                if (plugin.token && plugin.token.trim().length) {
-                    promise = postJSON("/api/plugins/token",
-                                       {id: plugin.id, token: plugin.token});
-                }
-                return promise.then(function(resp) {
-                    return postJSON("/api/plugins/activate", {id: plugin.id});
-                });
+                return postJSON("/api/plugins/activate", {id: plugin.id});
             }
 
             function disable(pluginId) {

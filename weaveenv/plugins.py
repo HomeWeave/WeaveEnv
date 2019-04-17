@@ -193,11 +193,9 @@ class PluginExecutionManager(object):
 
     def is_enabled(self, plugin_id):
         try:
-            plugin = self.get_plugin_data(plugin_id)
+            return self.get_plugin_data(plugin_id).enabled
         except ValueError:
             return False
-        token = plugin.app_secret_token
-        return plugin.enabled and (token is not None and len(token) > 0)
 
     def enable(self, plugin_id):
         plugin_data = self.get_plugin_data(plugin_id)
@@ -219,7 +217,7 @@ class PluginExecutionManager(object):
         plugin_id = plugin_info["id"]
 
         if not self.is_enabled(plugin_id):
-            raise ValueError("Plugin is not enabled or token is not set.")
+            raise ValueError("Plugin is not enabled")
 
         if self.is_active(plugin_id):
             return True
@@ -244,18 +242,6 @@ class PluginExecutionManager(object):
         stop_plugin(service)
         # TODO: Get the name of the plugin.
         logger.info("Stopped plugin: %s", service)
-        return True
-
-    def update_token(self, plugin_id, token):
-        if not token.strip():
-            raise ValueError("Invalid token.")
-        try:
-            plugin_data = self.get_plugin_data(plugin_id)
-        except ValueError:
-            raise ValueError("Unable to find plugin.")
-
-        plugin_data.app_secret_token = token
-        plugin_data.save()
         return True
 
     def get_plugin_data(self, plugin_id):
@@ -378,7 +364,6 @@ class PluginManager(object):
             ("POST", "deactivate", self.deactivate),
             ("POST", "install", self.install),
             ("POST", "uninstall", self.uninstall),
-            ("POST", "token", self.update_token),
         ]
 
     def list(self, params):
@@ -443,20 +428,6 @@ class PluginManager(object):
         updated_plugin_info = self.extract_plugin_info(plugin_info)
         self.plugins[plugin_id] = updated_plugin_info
         return 200, self.convert_plugin(updated_plugin_info)
-
-    def update_token(self, params):
-        plugin_id = params["id"]
-        plugin_info = self.plugins.get(plugin_id)
-        if not plugin_info:
-            return 404, {"error": "Not found."}
-
-        token = params["token"]
-        try:
-            self.execution_manager.update_token(plugin_id, token)
-        except ValueError as e:
-            return 400, {"error": e.message}
-
-        return 200, self.convert_plugin(plugin_info)
 
     def convert_plugin(self, plugin):
         fields = ["id", "name", "description", "url", "installed", "enabled",

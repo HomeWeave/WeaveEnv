@@ -1,7 +1,3 @@
-import errno
-import os
-
-import appdirs
 from peewee import SqliteDatabase, Proxy, Model, CharField, BooleanField
 from peewee import DoesNotExist
 
@@ -16,7 +12,6 @@ class BaseModel(Model):
 
 class PluginData(BaseModel):
     app_id = CharField(unique=True)
-    app_secret_token = CharField(null=True)
     enabled = BooleanField(default=False)
     is_remote = BooleanField(default=False)
 
