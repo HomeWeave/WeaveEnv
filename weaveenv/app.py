@@ -1,6 +1,7 @@
 import eventlet
 eventlet.monkey_patch()  # NOLINT
 
+import errno
 import logging
 import os
 import signal
