@@ -12,8 +12,6 @@ import git
 import virtualenv
 from github3 import GitHub
 
-from .database import PluginsDatabase
-
 
 logger = logging.getLogger(__name__)
 

@@ -10,6 +10,11 @@ class BaseModel(Model):
         database = proxy
 
 
+class WeaveEnvInstanceData(BaseModel):
+    machine_id = CharField(unique=True)
+    app_token = CharField()
+
+
 class PluginData(BaseModel):
     app_id = CharField(unique=True)
     enabled = BooleanField(default=False)
@@ -22,7 +27,10 @@ class PluginsDatabase(object):
 
     def start(self):
         proxy.initialize(self.conn)
-        self.conn.create_tables([PluginData])
+        self.conn.create_tables([
+            PluginData,
+            WeaveEnvInstance,
+        ])
 
     def query(self, key):
         try:
