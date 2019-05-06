@@ -126,6 +126,9 @@ class VirtualEnvManager(object):
                 return False
         return True
 
+    def is_installed(self):
+        return os.path.exists(self.venv_home)
+
     def activate(self):
         script = os.path.join(self.venv_home, "bin", "activate_this.py")
         execute_file(script)
@@ -137,70 +140,70 @@ class VirtualEnvManager(object):
 class BasePlugin(object):
     def __init__(self, src):
         self.src = src
-        self.appid = "plugin-token-" + str(uuid4())
 
-    def unique_id(self):
+    def plugin_id(self):
         return get_plugin_id(self.src)
 
-    def is_installed(self):
+    def install(self, dest_dir, venv):
         raise NotImplementedError
-
-    def is_enabled(self):
-        raise NotImplementedError
-
-
-class InstalledPlugin(BasePlugin):
-    def __init__(self, src):
-        super().__init__(src)
-
-    def unique_id(self):
-        return os.path.basename(self.src)
-
-    def is_installed(self):
-        return os.path.isdir(self.src)
-
-    def clean(self):
-        if os.path.isdir(self.src):
-            shutil.rmtree(self.src)
-
-    def get_plugin_dir(self):
-        return self.src
-
-
-class GitPlugin(BasePlugin):
-    def __init__(self, src, cloned_location=None):
-        super().__init__(src)
-        self.clone_url = src
-        self.cloned_location = cloned_location
-
-    def unique_id(self):
-        return get_plugin_id(self.clone_url)
-
-    def clone(self, plugin_base_dir):
-        self.cloned_location = os.path.join(plugin_base_dir, self.unique_id())
-
-        # Clear the directory if already present.
-        if os.path.isdir(self.cloned_location):
-            shutil.rmtree(self.cloned_location)
-
-        git.Repo.clone_from(self.clone_url, self.cloned_location)
-        return InstalledPlugin(self.cloned_location)
 
     def is_installed(self):
         return False
 
+    def is_enabled(self):
+        raise NotImplementedError
+
+    def get_file(self, rel_path):
+        return os.path.join(self.src, rel_path)
+
+
+class InstalledPlugin(BasePlugin):
+    def __init__(self, src, venv_manager):
+        super().__init__(src)
+        self.venv_manager = venv_manager
+
+    def plugin_id(self):
+        return os.path.basename(self.src)
+
+    def is_installed(self):
+        return os.path.isdir(self.src) and self.venv_manager.is_installed()
+
+    def clean(self):
+        if os.path.isdir(self.src):
+            shutil.rmtree(self.src)
+        self.venv_manager.clean()
+
+    def get_plugin_dir(self):
+        return self.src
+
+    def get_venv_dir(self):
+        return self.venv_manager.venv_home
+
+
+class GitPlugin(BasePlugin):
+    def __init__(self, src):
+        super().__init__(src)
+        self.clone_url = src
+
+    def install(self, plugin_base_dir, venv):
+        cloned_location = os.path.join(plugin_base_dir, self.plugin_id())
+
+        # Clear the directory if already present.
+        if os.path.isdir(cloned_location):
+            shutil.rmtree(cloned_location)
+
+        git.Repo.clone_from(self.clone_url, cloned_location)
+        return InstalledPlugin(cloned_location, venv)
+
 
 class RemoteFilePlugin(BasePlugin):
-    def __init__(self, src, dest):
-        if src is None:
-            src = open(os.path.join(dest, "source")).read().strip()
-            dest = os.path.dirname(dest)
-        super(RemoteFilePlugin, self).__init__(src, dest)
+    def __init__(self, src):
+        super(RemoteFilePlugin, self).__init__(src)
 
-    def create(self):
-        shutil.copytree(self.src, self.plugin_dir)
-        with open(os.path.join(self.plugin_dir, "source"), "w") as f:
-            f.write(self.src)
+    def install(self, dest_dir, venv):
+        plugin_path = os.path.join(dest_dir, self.plugin_id())
+        shutil.copytree(self.src, plugin_path)
+        return InstalledPlugin(plugin_path, venv)
 
 
 class PluginInstallManager(object):
@@ -209,44 +212,29 @@ class PluginInstallManager(object):
         self.venv_dir = venv_dir
         os.makedirs(self.plugin_dir, exist_ok=True)
 
-    def is_installed(self, plugin_id):
-        plugin_dir = os.path.join(self.plugin_dir, plugin_id)
-        venv_dir = os.path.join(self.plugin_dir, plugin_id)
-        return os.path.isdir(plugin_dir) and os.path.isdir(venv_dir)
-
-    def install(self, plugin_info):
-        git_plugin = GitPlugin(plugin_info["url"])
-
-        venv_path = os.path.join(self.venv_dir, plugin_info["id"])
+    def install(self, installable_plugin):
+        venv_path = os.path.join(self.venv_dir, installable_plugin.plugin_id())
         venv = VirtualEnvManager(venv_path)
+        installed_plugin = None
         try:
-            # Clone the Git Repo.
-            plugin = git_plugin.clone(self.plugin_dir)
+            installed_plugin = installable_plugin.install(self.plugin_dir, venv)
 
             # Configure a new VirtualEnv.
-            requirements_file = os.path.join(plugin.get_plugin_dir(),
-                                             "requirements.txt")
+            requirements_file = installed_plugin.get_file("requirements.txt")
             if not os.path.isfile(requirements_file):
                 requirements_file = None
             if not venv.install(requirements_file=requirements_file):
-                raise Exception("Unable to install virtualenv.")
+                raise WeaveException("Unable to install virtualenv.")
 
-            return plugin
+            return installed_plugin
         except Exception:
             logger.exception("Installation of plugin failed. Rolling back.")
-            self.uninstall(plugin_info["id"])
+            if installed_plugin:
+                self.uninstall(installed_plugin)
             return None
 
-    def uninstall(self, plugin_id):
-        InstalledPlugin(os.path.join(self.plugin_dir, plugin_id)).clean()
-        VirtualEnvManager(os.path.join(self.venv_dir, plugin_id)).clean()
-
-    def get_plugin_path(self, plugin_id):
-        return os.path.join(self.plugin_dir, plugin_id)
-
-    def venv_exists(self, plugin_id):
-        venv_dir = os.path.join(self.venv_dir, plugin_id)
-        return os.path.isdir(venv_dir)
+    def uninstall(self, installed_plugin):
+        installed_plugin.clean()
 
 
 class PluginExecutionManager(object):
