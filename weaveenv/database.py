@@ -1,5 +1,5 @@
 from peewee import SqliteDatabase, Proxy, Model, CharField, BooleanField
-from peewee import DoesNotExist
+from peewee import ForeignKeyField
 
 
 proxy = Proxy()
@@ -19,6 +19,7 @@ class PluginData(BaseModel):
     app_id = CharField(unique=True)
     enabled = BooleanField(default=False)
     is_remote = BooleanField(default=False)
+    machine = ForeignKeyField(WeaveEnvInstanceData, backref='plugins')
 
 
 class PluginsDatabase(object):
@@ -29,15 +30,5 @@ class PluginsDatabase(object):
         proxy.initialize(self.conn)
         self.conn.create_tables([
             PluginData,
-            WeaveEnvInstance,
+            WeaveEnvInstanceData,
         ])
-
-    def query(self, key):
-        try:
-            return PluginData.get(PluginData.app_id == key)
-        except DoesNotExist:
-            raise ValueError(key)
-
-    def insert(self, **kwargs):
-        query = PluginData.insert(**kwargs)
-        query.on_conflict_replace().execute()
