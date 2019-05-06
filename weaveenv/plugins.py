@@ -6,14 +6,19 @@ import os
 import shutil
 import subprocess
 import sys
-from uuid import uuid4
 
 import git
 import virtualenv
 from github3 import GitHub
 
+from weavelib.exceptions import WeaveException
+
 
 logger = logging.getLogger(__name__)
+
+
+class PluginLoadError(WeaveException):
+    pass
 
 
 def execute_file(path):
@@ -37,6 +42,68 @@ def run_plugin(service, timeout):
 def stop_plugin(service):
     service.service_stop()
 
+
+def load_plugin_json(install_path):
+    try:
+        with open(os.path.join(install_path, "plugin.json")) as inp:
+            plugin_info = json.load(inp)
+    except IOError:
+        raise PluginLoadError("Error opening plugin.json.")
+        return None
+    except ValueError:
+        raise PluginLoadError("Error opening plugin.json.")
+
+    sys.path.append(install_path)
+    try:
+        fully_qualified = plugin_info["service"]
+        if '.' not in fully_qualified:
+            raise PluginLoadError("Bad 'service' specification in plugin.json.")
+        mod, cls = plugin_info["service"].rsplit('.', 1)
+        module = getattr(importlib.import_module(mod), cls)
+    except AttributeError:
+        logger.warning("Bad service specification.", exc_info=True)
+        raise PluginLoadError("Bad service specification in plugin.json")
+    except ImportError:
+        raise PluginLoadError("Failed to import dependencies.")
+    except KeyError:
+        raise PluginLoadError("Required field not found in plugin.json.")
+    finally:
+        sys.path.pop(-1)
+
+    return {
+        "deps": plugin_info.get("deps"),
+        "package_path": plugin_info["service"],
+        "config": plugin_info.get("config", {}),
+        "start_timeout": plugin_info.get("start_timeout", 30),
+        "service_cls": module,
+    }
+
+
+def get_plugin_info(install_manager, execution_manager, plugin):
+    obj = load_plugin_json(plugin.get_plugin_dir())
+    obj["active"] = execution_manager.is_active(plugin)
+
+    if isinstance(plugin, InstalledPlugin) and plugin.is_installed():
+        obj["installed"] = True
+        obj["install_path"] = plugin.get_plugin_dir()
+    else:
+        obj["installed"] = False
+
+    return obj
+
+
+def list_github_plugins(organization='HomeWeave'):
+    for repo in GitHub().organization(organization).repositories():
+        contents = repo.directory_contents("/", return_as=dict)
+        plugin_id = get_plugin_id(repo.clone_url)
+
+        if "plugin.json" in contents:
+            yield {
+                "id": plugin_id,
+                "name": repo.name,
+                "url": repo.clone_url,
+                "description": repo.description,
+            }
 
 class VirtualEnvManager(object):
     def __init__(self, path):
@@ -246,91 +313,6 @@ class PluginExecutionManager(object):
         return self.database.query(plugin_id)
 
 
-class GithubRepositoryLister(object):
-    def __init__(self, organization):
-        self.organization = GitHub().organization(organization)
-
-    def list_plugins(self):
-        for repo in self.organization.repositories():
-            contents = repo.directory_contents("/", return_as=dict)
-            plugin_id = get_plugin_id(repo.clone_url)
-
-            if "plugin.json" in contents:
-                yield {
-                    "id": plugin_id,
-                    "name": repo.name,
-                    "url": repo.clone_url,
-                    "description": repo.description,
-                }
-
-
-class PluginStateFilter(object):
-    def __init__(self, install_manager, execution_manager):
-        self.install_manager = install_manager
-        self.execution_manager = execution_manager
-
-    def filter(self, obj):
-        obj["installed"] = self.install_manager.is_installed(obj["id"])
-        obj["active"] = self.execution_manager.is_active(obj["id"])
-        obj["enabled"] = self.execution_manager.is_enabled(obj["id"])
-
-        if obj["installed"]:
-            obj["install_path"] = \
-                self.install_manager.get_plugin_path(obj["id"])
-
-        return obj
-
-
-class PluginInfoFilter(object):
-    def filter(self, obj):
-        if not obj.get("installed"):
-            return obj
-
-        try:
-            with open(os.path.join(obj["install_path"], "plugin.json")) as inp:
-                plugin_info = json.load(inp)
-        except IOError:
-            logger.warning("Error opening plugin.json within %s", obj["name"])
-            return obj
-        except ValueError:
-            logger.warning("Error parsing plugin.json within %s", obj["name"])
-            return obj
-
-        sys.path.append(obj["install_path"])
-        try:
-            fully_qualified = plugin_info["service"]
-            if '.' not in fully_qualified:
-                logger.warning("Bad 'service' specification in plugin.json.")
-                return obj
-            mod, cls = plugin_info["service"].rsplit('.', 1)
-            module = getattr(importlib.import_module(mod), cls)
-        except AttributeError:
-            msg = "Possibly bad service specification in plugin.json"
-            logger.warning(msg, exc_info=True)
-            obj.setdefault("errors", []).append(msg)
-            return obj
-        except ImportError:
-            msg = "Failed to import dependencies for " + obj["name"]
-            obj.setdefault("errors", []).append(msg)
-            logger.warning(msg, exc_info=True)
-            return obj
-        except KeyError:
-            msg = "Required field not found in plugin.json for " + obj["name"]
-            obj.setdefault("errors", []).append(msg)
-            logger.warning(msg, exc_info=True)
-            return obj
-        finally:
-            sys.path.pop(-1)
-
-        obj.update({
-            "deps": plugin_info.get("deps"),
-            "package_path": plugin_info["service"],
-            "config": plugin_info.get("config", {}),
-            "start_timeout": plugin_info.get("start_timeout", 30),
-            "service_cls": module,
-        })
-        return obj
-
 
 class PluginManager(object):
     def __init__(self, base_path, plugins_db):
@@ -346,7 +328,7 @@ class PluginManager(object):
         self.database.start()
         github = GithubRepositoryLister("HomeWeave")
         self.plugins = {}
-        for repo in github.list_plugins():
+        for repo in list_github_plugins():
             plugin_info = self.extract_plugin_info(repo)
             self.plugins[repo["id"]] = plugin_info
 
@@ -380,7 +362,8 @@ class PluginManager(object):
         except ValueError as e:
             return 400, {"error": str(e)}
 
-        updated_plugin_info = self.extract_plugin_info(plugin_info)
+        updated_plugin_info = get_plugin_info(self.install_manager,
+                                              self.execution_manager, plugin_id)
         self.plugins[plugin_id] = updated_plugin_info
         return 200, self.convert_plugin(updated_plugin_info)
 
@@ -396,7 +379,8 @@ class PluginManager(object):
         except ValueError as e:
             return 400, {"error": str(e)}
 
-        updated_plugin_info = self.extract_plugin_info(plugin_info)
+        updated_plugin_info = get_plugin_info(self.install_manager,
+                                              self.execution_manager, plugin_id)
         self.plugins[plugin_id] = updated_plugin_info
         return 200, self.convert_plugin(updated_plugin_info)
 
@@ -412,7 +396,8 @@ class PluginManager(object):
         if not plugin:
             return 400, {"error": "Failed to install library."}
 
-        updated_plugin_info = self.extract_plugin_info(plugin_info)
+        updated_plugin_info = get_plugin_info(self.install_manager,
+                                              self.execution_manager, plugin_id)
         self.plugins[plugin_id] = updated_plugin_info
         return 200, self.convert_plugin(updated_plugin_info)
 
@@ -423,7 +408,8 @@ class PluginManager(object):
             return 404, {"error": "Not found."}
 
         self.install_manager.uninstall(plugin_id)
-        updated_plugin_info = self.extract_plugin_info(plugin_info)
+        updated_plugin_info = get_plugin_info(self.install_manager,
+                                              self.execution_manager, plugin_id)
         self.plugins[plugin_id] = updated_plugin_info
         return 200, self.convert_plugin(updated_plugin_info)
 
@@ -438,12 +424,3 @@ class PluginManager(object):
                 res[opt_field] = plugin[opt_field]
 
         return res
-
-    def extract_plugin_info(self, plugin_info):
-        filters = [
-            PluginStateFilter(self.install_manager, self.execution_manager),
-            PluginInfoFilter(),
-        ]
-        for filt in filters:
-            plugin_info = filt.filter(plugin_info)
-        return plugin_info
