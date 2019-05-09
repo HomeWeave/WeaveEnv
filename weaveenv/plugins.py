@@ -95,15 +95,10 @@ def get_plugin_info(install_manager, execution_manager, plugin):
 def list_github_plugins(organization='HomeWeave'):
     for repo in GitHub().organization(organization).repositories():
         contents = repo.directory_contents("/", return_as=dict)
-        plugin_id = get_plugin_id(repo.clone_url)
 
         if "plugin.json" in contents:
-            yield {
-                "id": plugin_id,
-                "name": repo.name,
-                "url": repo.clone_url,
-                "description": repo.description,
-            }
+            yield GitPlugin(repo.clone_url, repo.name, repo.description)
+
 
 class VirtualEnvManager(object):
     def __init__(self, path):
@@ -138,8 +133,10 @@ class VirtualEnvManager(object):
 
 
 class BasePlugin(object):
-    def __init__(self, src):
+    def __init__(self, src, name, description):
         self.src = src
+        self.name = name
+        self.description = description
 
     def plugin_id(self):
         return get_plugin_id(self.src)
@@ -158,8 +155,8 @@ class BasePlugin(object):
 
 
 class InstalledPlugin(BasePlugin):
-    def __init__(self, src, venv_manager):
-        super().__init__(src)
+    def __init__(self, src, venv_manager, name, description):
+        super().__init__(src, name, description)
         self.venv_manager = venv_manager
 
     def plugin_id(self):
@@ -181,8 +178,8 @@ class InstalledPlugin(BasePlugin):
 
 
 class GitPlugin(BasePlugin):
-    def __init__(self, src):
-        super().__init__(src)
+    def __init__(self, src, name, description):
+        super().__init__(src, name, description)
         self.clone_url = src
 
     def install(self, plugin_base_dir, venv):
@@ -197,8 +194,8 @@ class GitPlugin(BasePlugin):
 
 
 class RemoteFilePlugin(BasePlugin):
-    def __init__(self, src):
-        super(RemoteFilePlugin, self).__init__(src)
+    def __init__(self, src, name, description):
+        super(RemoteFilePlugin, self).__init__(src, name, description)
 
     def install(self, dest_dir, venv):
         plugin_path = os.path.join(dest_dir, self.plugin_id())
