@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+from threading import RLock
 
 import git
 import virtualenv
@@ -25,10 +26,6 @@ def execute_file(path):
     global_vars = {"__file__":  path}
     with open(path, 'rb') as pyfile:
         exec(compile(pyfile.read(), path, 'exec'), global_vars)
-
-
-def get_plugin_id(url):
-    return hashlib.md5(url.encode('utf-8')).hexdigest()
 
 
 def run_plugin(service, timeout):
@@ -79,19 +76,6 @@ def load_plugin_json(install_path):
     }
 
 
-def get_plugin_info(install_manager, execution_manager, plugin):
-    obj = load_plugin_json(plugin.get_plugin_dir())
-    obj["active"] = execution_manager.is_active(plugin)
-
-    if isinstance(plugin, InstalledPlugin) and plugin.is_installed():
-        obj["installed"] = True
-        obj["install_path"] = plugin.get_plugin_dir()
-    else:
-        obj["installed"] = False
-
-    return obj
-
-
 def list_github_plugins(organization='HomeWeave'):
     for repo in GitHub().organization(organization).repositories():
         contents = repo.directory_contents("/", return_as=dict)
@@ -139,7 +123,7 @@ class BasePlugin(object):
         self.description = description
 
     def plugin_id(self):
-        return get_plugin_id(self.src)
+        return hashlib.md5(url.encode('utf-8')).hexdigest()
 
     def install(self, dest_dir, venv):
         raise NotImplementedError
@@ -152,6 +136,13 @@ class BasePlugin(object):
 
     def get_file(self, rel_path):
         return os.path.join(self.src, rel_path)
+
+    def __hash__(self):
+        return hash(self.plugin_id())
+
+    def __eq__(self, other):
+        return (isinstance(other, BasePlugin) and
+                self.plugin_id() == other.plugin_id())
 
 
 class InstalledPlugin(BasePlugin):
@@ -175,6 +166,12 @@ class InstalledPlugin(BasePlugin):
 
     def get_venv_dir(self):
         return self.venv_manager.venv_home
+
+
+class ActivePlugin(InstalledPlugin):
+    def __init__(self, src, venv_manager, name, description, auth_token):
+        super().__init__(src, venv_manager, name, description)
+        self.auth_token = auth_token
 
 
 class GitPlugin(BasePlugin):
@@ -203,11 +200,62 @@ class RemoteFilePlugin(BasePlugin):
         return InstalledPlugin(plugin_path, venv)
 
 
-class PluginInstallManager(object):
-    def __init__(self, plugin_dir, venv_dir):
-        self.plugin_dir = plugin_dir
-        self.venv_dir = venv_dir
+class PluginManager(object):
+    def __init__(self, base_path):
+        self.plugin_dir = os.path.join(base_path, "plugins")
+        self.venv_dir = os.path.join(base_path, "venv")
+        self.plugins = {}
+        self.active_plugins = {}
+        self.active_plugins_lock = RLock()
+
         os.makedirs(self.plugin_dir, exist_ok=True)
+
+    def start(self, installed_plugins):
+        plugins = set(installed_plugins) | set(list_github_plugins())
+        self.plugins = {x.plugin_id(): x for x in plugins}
+
+        # Start enabled plugins.
+        for plugin in self.plugins.values():
+            if isinstance(plugin, ActivePlugin):
+                self.activate(plugin, plugin.auth_token)
+
+    def is_active(self, plugin):
+        with self.active_plugins_lock:
+            return plugin in self.active_plugins
+
+    def activate(self, plugin, secret_token):
+        if self.is_active(plugin):
+            return True
+
+        plugin_id = plugin.plugin_id()
+        venv_dir = os.path.join(self.venv_dir, plugin_id)
+        install_dir = os.path.join(self.plugin_dir, plugin_id)
+
+        plugin_info = load_plugin_json(install_dir)
+
+        service_cls = plugin_info["service_cls"]
+        start_timeout = plugin_info["start_timeout"]
+        config = plugin_info["config"]
+
+        service = service_cls(secret_token, config, venv_dir)
+
+        if not run_plugin(service, timeout=start_timeout):
+            raise Exception("Unable to start plugin.")
+
+        logger.info("Started plugin: %s", plugin_info["name"])
+        self.active_plugins[plugin_id] = service
+        return True
+
+    def deactivate(self, plugin):
+        plugin_id = plugin.plugin_id()
+        if not self.is_active(plugin_id):
+            raise ValueError("Plugin is not active.")
+
+        service = self.active_plugins[plugin_id]
+        stop_plugin(service)
+        # TODO: Get the name of the plugin.
+        logger.info("Stopped plugin: %s", service)
+        return True
 
     def install(self, installable_plugin):
         venv_path = os.path.join(self.venv_dir, installable_plugin.plugin_id())
@@ -233,179 +281,6 @@ class PluginInstallManager(object):
     def uninstall(self, installed_plugin):
         installed_plugin.clean()
 
-
-class PluginExecutionManager(object):
-    def __init__(self, plugin_dir, venv_dir, database):
-        self.plugin_dir = plugin_dir
-        self.venv_dir = venv_dir
-        self.database = database
-        self.active_plugins = {}
-
-    def is_enabled(self, plugin_id):
-        try:
-            return self.get_plugin_data(plugin_id).enabled
-        except ValueError:
-            return False
-
-    def enable(self, plugin_id):
-        plugin_data = self.get_plugin_data(plugin_id)
-
-        plugin_data.enabled = True
-        plugin_data.save()
-        return True
-
-    def disable(self, plugin_id):
-        plugin_data = self.get_plugin_data(plugin_id)
-        plugin_data.enabled = False
-        plugin_data.save()
-        return True
-
-    def is_active(self, plugin_id):
-        return plugin_id in self.active_plugins
-
-    def activate(self, plugin_info):
-        plugin_id = plugin_info["id"]
-
-        if not self.is_enabled(plugin_id):
-            raise ValueError("Plugin is not enabled")
-
-        if self.is_active(plugin_id):
-            return True
-
-        venv_dir = os.path.join(self.venv_dir, plugin_id)
-        plugin_data = self.get_plugin_data(plugin_id)
-        service = plugin_info["cls"](plugin_data.app_secret_token, {}, venv_dir)
-
-        # TODO: Read timeout & config (above) from plugin.json.
-        if not run_plugin(service, timeout=30):
-            raise Exception("Unable to start plugin.")
-
-        logger.info("Started plugin: %s", plugin_info["name"])
-        self.active_plugins[plugin_id] = service
-        return True
-
-    def deactivate(self, plugin_id):
-        if not self.is_active(plugin_id):
-            raise ValueError("Plugin is not active.")
-
-        service = self.active_plugins[plugin_id]
-        stop_plugin(service)
-        # TODO: Get the name of the plugin.
-        logger.info("Stopped plugin: %s", service)
-        return True
-
-    def get_plugin_data(self, plugin_id):
-        return self.database.query(plugin_id)
-
-
-
-class PluginManager(object):
-    def __init__(self, base_path, plugins_db):
-        plugin_dir = os.path.join(base_path, "plugins")
-        venv_dir = os.path.join(base_path, "venv")
-        self.database = plugins_db
-        self.install_manager = PluginInstallManager(plugin_dir, venv_dir)
-        self.execution_manager = PluginExecutionManager(plugin_dir, venv_dir,
-                                                        self.database)
-        self.plugins = {}
-
-    def start(self):
-        self.database.start()
-        github = GithubRepositoryLister("HomeWeave")
-        self.plugins = {}
-        for repo in list_github_plugins():
-            plugin_info = self.extract_plugin_info(repo)
-            self.plugins[repo["id"]] = plugin_info
-
-            try:
-                self.database.query(repo["id"])
-            except ValueError:
-                self.database.insert(app_id=repo["id"])
-
-    def get_registrations(self):
-        return [
-            ("GET", "", self.list),
-            ("POST", "activate", self.activate),
-            ("POST", "deactivate", self.deactivate),
-            ("POST", "install", self.install),
-            ("POST", "uninstall", self.uninstall),
-        ]
-
     def list(self, params):
-        res = [self.convert_plugin(v) for v in self.plugins.values()]
-        return 200, res
+        return list(self.plugins.values())
 
-    def activate(self, params):
-        plugin_id = params["id"]
-        plugin_info = self.plugins.get(plugin_id)
-        if not plugin_info:
-            return 404, {"error": "Not found."}
-
-        try:
-            self.execution_manager.enable(plugin_id)
-            self.execution_manager.activate(plugin_id)
-        except ValueError as e:
-            return 400, {"error": str(e)}
-
-        updated_plugin_info = get_plugin_info(self.install_manager,
-                                              self.execution_manager, plugin_id)
-        self.plugins[plugin_id] = updated_plugin_info
-        return 200, self.convert_plugin(updated_plugin_info)
-
-    def deactivate(self, params):
-        plugin_id = params["id"]
-        plugin_info = self.plugins.get(plugin_id)
-        if not plugin_info:
-            return 404, {"error": "Not found."}
-
-        try:
-            self.execution_manager.disable(plugin_id)
-            self.execution_manager.deactivate(plugin_id)
-        except ValueError as e:
-            return 400, {"error": str(e)}
-
-        updated_plugin_info = get_plugin_info(self.install_manager,
-                                              self.execution_manager, plugin_id)
-        self.plugins[plugin_id] = updated_plugin_info
-        return 200, self.convert_plugin(updated_plugin_info)
-
-        return 200, {}
-
-    def install(self, params):
-        plugin_id = params["id"]
-        plugin_info = self.plugins.get(plugin_id)
-        if not plugin_info:
-            return 404, {"error": "Not found."}
-
-        plugin = self.install_manager.install(plugin_info)
-        if not plugin:
-            return 400, {"error": "Failed to install library."}
-
-        updated_plugin_info = get_plugin_info(self.install_manager,
-                                              self.execution_manager, plugin_id)
-        self.plugins[plugin_id] = updated_plugin_info
-        return 200, self.convert_plugin(updated_plugin_info)
-
-    def uninstall(self, params):
-        plugin_id = params["id"]
-        plugin_info = self.plugins.get(plugin_id)
-        if not plugin_info:
-            return 404, {"error": "Not found."}
-
-        self.install_manager.uninstall(plugin_id)
-        updated_plugin_info = get_plugin_info(self.install_manager,
-                                              self.execution_manager, plugin_id)
-        self.plugins[plugin_id] = updated_plugin_info
-        return 200, self.convert_plugin(updated_plugin_info)
-
-    def convert_plugin(self, plugin):
-        fields = ["id", "name", "description", "url", "installed", "enabled",
-                  "active"]
-        res = {x: plugin[x] for x in fields}
-
-        optional_fields = ["errors"]
-        for opt_field in optional_fields:
-            if plugin.get(opt_field):
-                res[opt_field] = plugin[opt_field]
-
-        return res
