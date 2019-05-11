@@ -215,13 +215,11 @@ class GitPlugin(BasePlugin):
             shutil.rmtree(cloned_location)
 
         git.Repo.clone_from(self.clone_url, cloned_location)
-        return InstalledPlugin(cloned_location, venv)
+        return InstalledPlugin(cloned_location, venv, self.name,
+                               self.description)
 
 
 class RemoteFilePlugin(BasePlugin):
-    def __init__(self, src, name, description):
-        super(RemoteFilePlugin, self).__init__(src, name, description)
-
     def install(self, dest_dir, venv):
         plugin_path = os.path.join(dest_dir, self.plugin_id())
         shutil.copytree(self.src, plugin_path)
