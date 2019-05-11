@@ -168,10 +168,38 @@ class InstalledPlugin(BasePlugin):
         return self.venv_manager.venv_home
 
 
-class ActivePlugin(InstalledPlugin):
+class RunnablePlugin(InstalledPlugin):
     def __init__(self, src, venv_manager, name, description, auth_token):
         super().__init__(src, venv_manager, name, description)
         self.auth_token = auth_token
+
+    def run(self):
+        plugin_info = load_plugin_json(self.src)
+
+        service_cls = plugin_info["service_cls"]
+        start_timeout = plugin_info["start_timeout"]
+        config = plugin_info["config"]
+
+        service = service_cls(self.auth_token, config,
+                              self.venv_manager.venv_home)
+
+        if not run_plugin(service, timeout=start_timeout):
+            raise WeaveException("Unable to start plugin.")
+
+        logger.info("Started plugin: %s", plugin_info["name"])
+
+        return RunningPlugin(self.src, self.venv_manager, self.name,
+                             self.description, service)
+
+
+class RunningPlugin(InstalledPlugin):
+    def __init__(self, src, venv_manager, name, description, service):
+        super().__init__(src, venv_manager, name, description)
+        self.service = service
+
+    def stop(self):
+        stop_plugin(self.service)
+
 
 
 class GitPlugin(BasePlugin):
@@ -227,23 +255,11 @@ class PluginManager(object):
         if self.is_active(plugin):
             return True
 
-        plugin_id = plugin.plugin_id()
-        venv_dir = os.path.join(self.venv_dir, plugin_id)
-        install_dir = os.path.join(self.plugin_dir, plugin_id)
+        if not isinstance(plugin, RunnablePlugin):
+            raise TypeError("Expected a runnable plugin.")
 
-        plugin_info = load_plugin_json(install_dir)
-
-        service_cls = plugin_info["service_cls"]
-        start_timeout = plugin_info["start_timeout"]
-        config = plugin_info["config"]
-
-        service = service_cls(secret_token, config, venv_dir)
-
-        if not run_plugin(service, timeout=start_timeout):
-            raise Exception("Unable to start plugin.")
-
-        logger.info("Started plugin: %s", plugin_info["name"])
-        self.active_plugins[plugin_id] = service
+        self.active_plugins[plugin.plugin_id()] = plugin.run()
+        logger.info("Started plugin: %s", plugin.name)
         return True
 
     def deactivate(self, plugin):
@@ -252,9 +268,7 @@ class PluginManager(object):
             raise ValueError("Plugin is not active.")
 
         service = self.active_plugins[plugin_id]
-        stop_plugin(service)
-        # TODO: Get the name of the plugin.
-        logger.info("Stopped plugin: %s", service)
+        logger.info("Stopped plugin: %s", plugin.name)
         return True
 
     def install(self, installable_plugin):
