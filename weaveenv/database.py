@@ -20,7 +20,6 @@ class PluginData(BaseModel):
     name = CharField()
     description = CharField()
     enabled = BooleanField(default=False)
-    is_remote = BooleanField(default=False)
     machine = ForeignKeyField(WeaveEnvInstanceData, backref='plugins')
 
 
