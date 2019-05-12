@@ -123,7 +123,7 @@ class BasePlugin(object):
         self.description = description
 
     def plugin_id(self):
-        return hashlib.md5(url.encode('utf-8')).hexdigest()
+        return hashlib.md5(self.src.encode('utf-8')).hexdigest()
 
     def install(self, dest_dir, venv):
         raise NotImplementedError
@@ -201,7 +201,6 @@ class RunningPlugin(InstalledPlugin):
         stop_plugin(self.service)
 
 
-
 class GitPlugin(BasePlugin):
     def __init__(self, src, name, description):
         super().__init__(src, name, description)
@@ -242,7 +241,7 @@ class PluginManager(object):
 
         # Start enabled plugins.
         for plugin in self.plugins.values():
-            if isinstance(plugin, ActivePlugin):
+            if isinstance(plugin, RunnablePlugin):
                 self.activate(plugin, plugin.auth_token)
 
     def is_active(self, plugin):
@@ -265,7 +264,8 @@ class PluginManager(object):
         if not self.is_active(plugin_id):
             raise ValueError("Plugin is not active.")
 
-        service = self.active_plugins[plugin_id]
+        plugin = self.active_plugins[plugin_id]
+        plugin.stop()
         logger.info("Stopped plugin: %s", plugin.name)
         return True
 
@@ -295,4 +295,3 @@ class PluginManager(object):
 
     def list(self, params):
         return list(self.plugins.values())
-
