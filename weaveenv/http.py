@@ -28,7 +28,7 @@ class MyWSGIRefServer(ServerAdapter):
 
 class WeaveHTTPServer(Bottle):
     def __init__(self, modules, static_path="static"):
-        super().__init__()
+        super(WeaveHTTPServer, self).__init__()
         self.server = None
         self.static_path = static_path
 
