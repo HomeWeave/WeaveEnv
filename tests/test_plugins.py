@@ -58,6 +58,13 @@ class TestPluginLoadJson(object):
 
         assert ex.value.extra == "Failed to import dependencies."
 
+    def test_failing_import2(self):
+        self.write_content("plugin.json", '{"service": "weaveenv.plugins.tmp"}')
+        with pytest.raises(PluginLoadError) as ex:
+            load_plugin_json(self.plugin_dir)
+
+        assert ex.value.extra ==  "Bad service specification in plugin.json"
+
     def test_not_base_plugin(self):
         # This just tries to import from weaveenv
         self.write_content("plugin.json",
