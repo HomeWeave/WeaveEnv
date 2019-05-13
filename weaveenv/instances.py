@@ -23,6 +23,36 @@ def get_machine_id(base_path):
             json.dump({"machine_id": machine_id}, config_file)
 
 
+def register_plugin(service, plugin):
+    conn = service.get_connection()
+    token = service.get_auth_token()
+
+    # TODO: Find a find to get find_rpc(..) work for core system RPC too.
+    rpc_info = find_rpc(service, None)
+    client = RPCClient(conn, rpc_info, token)
+
+    # TODO: Make InstalledPlugin, and RunnablePlugin have GitHub url in them.
+    return client["register_plugin"](plugin.plugin_id(), plugin.name,
+                                     plugin.src, _block=True)
+
+
+def load_installed_plugins(service, plugin_manager):
+    for plugin in self.instance_data.plugins:
+        if not plugin.is_enabled:
+            continue
+
+        path = os.path.join(plugin_manager.plugin_dir, plugin.app_id)
+        if not os.path.isdir(path):
+            continue
+
+        # TODO: checks to ensure plugins are loadable and are not tampered with.
+
+        # Register this plugin with ApplicationManager.
+        auth_token = register_plugin(service, plugin)
+        result.append(RunnablePlugin(path, venv, plugin.name,
+                                     plugin.description, auth_token))
+
+
 class BaseWeaveEnvInstance(object):
     def start(self):
         raise NotImplementedError
