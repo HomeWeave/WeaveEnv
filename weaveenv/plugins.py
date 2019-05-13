@@ -12,14 +12,11 @@ import git
 import virtualenv
 from github3 import GitHub
 
-from weavelib.exceptions import WeaveException
+from weavelib.exceptions import WeaveException, PluginLoadError
+from weavelib.services import BasePlugin as BaseServicePlugin
 
 
 logger = logging.getLogger(__name__)
-
-
-class PluginLoadError(WeaveException):
-    pass
 
 
 def execute_file(path):
@@ -46,9 +43,8 @@ def load_plugin_json(install_path):
             plugin_info = json.load(inp)
     except IOError:
         raise PluginLoadError("Error opening plugin.json.")
-        return None
     except ValueError:
-        raise PluginLoadError("Error opening plugin.json.")
+        raise PluginLoadError("Error parsing plugin.json.")
 
     sys.path.append(install_path)
     try:
@@ -57,6 +53,9 @@ def load_plugin_json(install_path):
             raise PluginLoadError("Bad 'service' specification in plugin.json.")
         mod, cls = plugin_info["service"].rsplit('.', 1)
         module = getattr(importlib.import_module(mod), cls)
+
+        if not issubclass(module, BaseServicePlugin):
+            raise PluginLoadError("Service must inherit BasePlugin.")
     except AttributeError:
         logger.warning("Bad service specification.", exc_info=True)
         raise PluginLoadError("Bad service specification in plugin.json")
