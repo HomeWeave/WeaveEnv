@@ -9,7 +9,7 @@ from weavelib.rpc import RPCServer, ServerAPI, ArgParameter, RPCClient
 from weavelib.rpc import find_rpc
 
 from .database import PluginsDatabase, PluginData
-from .plugins import RunnablePlugin
+from .plugins import RunnablePlugin, InstalledPlugin
 
 
 def get_machine_id(base_path):
@@ -38,12 +38,9 @@ def register_plugin(service, plugin):
                                      plugin.src, _block=True)
 
 
-def load_enabled_plugins(plugins, service, plugin_manager):
+def load_installed_plugins(plugins, service, plugin_manager):
     result = []
     for plugin in plugins:
-        if not plugin.is_enabled:
-            continue
-
         path = os.path.join(plugin_manager.plugin_dir, plugin.app_id)
         if not os.path.isdir(path):
             continue
@@ -51,10 +48,16 @@ def load_enabled_plugins(plugins, service, plugin_manager):
         # TODO: checks to ensure plugins are loadable and are not tampered with.
 
         # Register this plugin with ApplicationManager.
-        auth_token = register_plugin(service, plugin)
-        venv = plugin_manager.get_venv(plugin)
-        result.append(RunnablePlugin(path, venv, plugin.name,
-                                     plugin.description, auth_token))
+        if plugin.is_enabled:
+            auth_token = register_plugin(service, plugin)
+            venv = plugin_manager.get_venv(plugin)
+            result.append(RunnablePlugin(path, venv, plugin.name,
+                                         plugin.description, auth_token))
+        else:
+            venv = plugin_manager.get_venv(plugin)
+            result.append(InstalledPlugin(path, venv, plugin.name,
+                                          plugin.description))
+
     return result
 
 
