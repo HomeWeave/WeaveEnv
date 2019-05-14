@@ -8,6 +8,7 @@ from weavelib.exceptions import ObjectNotFound
 from weavelib.rpc import RPCServer, ServerAPI, ArgParameter
 
 from .database import PluginsDatabase, PluginData
+from .plugins import RunnablePlugin
 
 
 def get_machine_id(base_path):
@@ -36,8 +37,9 @@ def register_plugin(service, plugin):
                                      plugin.src, _block=True)
 
 
-def load_installed_plugins(service, plugin_manager):
-    for plugin in self.instance_data.plugins:
+def load_enabled_plugins(plugins, service, plugin_manager):
+    result = []
+    for plugin in plugins:
         if not plugin.is_enabled:
             continue
 
@@ -49,8 +51,10 @@ def load_installed_plugins(service, plugin_manager):
 
         # Register this plugin with ApplicationManager.
         auth_token = register_plugin(service, plugin)
+        venv = plugin_manager.get_venv(plugin)
         result.append(RunnablePlugin(path, venv, plugin.name,
                                      plugin.description, auth_token))
+    return result
 
 
 class BaseWeaveEnvInstance(object):

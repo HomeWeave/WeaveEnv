@@ -269,8 +269,7 @@ class PluginManager(object):
         return True
 
     def install(self, installable_plugin):
-        venv_path = os.path.join(self.venv_dir, installable_plugin.plugin_id())
-        venv = VirtualEnvManager(venv_path)
+        venv = self.get_venv(installable_plugin)
         installed_plugin = None
         try:
             installed_plugin = installable_plugin.install(self.plugin_dir, venv)
@@ -294,3 +293,7 @@ class PluginManager(object):
 
     def list(self, params):
         return list(self.plugins.values())
+
+    def get_venv(self, plugin):
+        venv_path = os.path.join(self.venv_dir, plugin.plugin_id())
+        return VirtualEnvManager(venv_path)
