@@ -5,7 +5,8 @@ from uuid import uuid4
 from peewee import DoesNotExist
 
 from weavelib.exceptions import ObjectNotFound
-from weavelib.rpc import RPCServer, ServerAPI, ArgParameter
+from weavelib.rpc import RPCServer, ServerAPI, ArgParameter, RPCClient
+from weavelib.rpc import find_rpc
 
 from .database import PluginsDatabase, PluginData
 from .plugins import RunnablePlugin
@@ -96,6 +97,12 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
                 ArgParameter("plugin_id", "PluginID to uninstall", str),
             ], self.uninstall),
         ], service)
+
+    def start(self):
+        enabled_plugins = load_enabled_plugins(self.instance_data.plugins,
+                                               self.service,
+                                               self.plugin_manager)
+        self.plugin_manager.start(enabled_plugins)
 
     def activate(self, plugin_id):
         plugin_data = self.get_plugin_by_id(plugin_id)
