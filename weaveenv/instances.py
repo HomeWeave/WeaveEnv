@@ -102,10 +102,10 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
         ], service)
 
     def start(self):
-        enabled_plugins = load_enabled_plugins(self.instance_data.plugins,
-                                               self.service,
-                                               self.plugin_manager)
-        self.plugin_manager.start(enabled_plugins)
+        installed_plugins = load_installed_plugins(self.instance_data.plugins,
+                                                   self.service,
+                                                   self.plugin_manager)
+        self.plugin_manager.start(installed_plugins)
 
     def activate(self, plugin_id):
         plugin_data = self.get_plugin_by_id(plugin_id)
