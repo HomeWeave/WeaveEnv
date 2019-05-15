@@ -243,11 +243,16 @@ class PluginManager(object):
             if isinstance(plugin, RunnablePlugin):
                 self.activate(plugin, plugin.auth_token)
 
+    def stop(self):
+        for plugin in self.plugins.values():
+            if isinstance(plugin, RunningPlugin):
+                plugin.stop()
+
     def is_active(self, plugin):
         with self.active_plugins_lock:
             return plugin in self.active_plugins
 
-    def activate(self, plugin, secret_token):
+    def activate(self, plugin):
         if self.is_active(plugin):
             return True
 

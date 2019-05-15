@@ -1,5 +1,5 @@
 import os
-from uuid import uuid4
+from threading import Event
 
 from peewee import DoesNotExist
 
@@ -97,20 +97,25 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
                 ArgParameter("plugin_id", "PluginID to uninstall", str),
             ], self.uninstall),
         ], service)
+        self.stopped = Event()
 
     def start(self):
+        # Insert basic data into the DB such as command-line access Data and
+        # current machine data.
+
         installed_plugins = load_installed_plugins(self.instance_data.plugins,
                                                    self.service,
                                                    self.plugin_manager)
         self.plugin_manager.start(installed_plugins)
+        self.rpc_server.start()
+
+    def stop(self):
+        self.rpc_server.stop()
+        self.plugin_manager.stop()
+        self.stopped.set()
+
+    def wait(self):
+        self.stopped.wait()
 
     def activate(self, plugin_id):
-        plugin_data = self.get_plugin_by_id(plugin_id)
-
-    def get_plugin_by_id(self, plugin_id):
-        try:
-            return PluginData.get(PluginData.app_id == plugin_id)
-        except DoesNotExist:
-            raise ObjectNotFound(plugin_id)
-
-
+        pass
