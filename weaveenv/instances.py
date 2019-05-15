@@ -47,14 +47,14 @@ def load_installed_plugins(plugins, service, plugin_manager):
     return result
 
 
-def get_plugin_by_id(self, plugin_id):
+def get_plugin_by_id(plugin_id):
     try:
         return PluginData.get(PluginData.app_id == plugin_id)
     except DoesNotExist:
         raise ObjectNotFound(plugin_id)
 
 
-def get_plugin_by_url(self, url):
+def get_plugin_by_url(url):
     return get_plugin_by_id(url_to_plugin_id(url))
 
 

@@ -9,13 +9,14 @@ import sys
 
 import appdirs
 
+from weavelib.exceptions import ObjectNotFound
 from weavelib.messaging import WeaveConnection
 from weavelib.services.service_base import MessagingEnabled
 
 from weaveenv.database import PluginsDatabase
 from weaveenv.http import WeaveHTTPServer
-from weaveenv.plugins import PluginManager, get_plugin_id, VirtualEnvManager
-from weaveenv.plugins import get_plugin_by_url
+from weaveenv.instances import get_plugin_by_url
+from weaveenv.plugins import PluginManager, VirtualEnvManager, url_to_plugin_id
 
 
 logging.basicConfig()
@@ -38,7 +39,7 @@ def get_config_path():
 
 
 def get_machine_id():
-    with open("/sys/class/dmi/id/modaias") as inp:
+    with open("/sys/class/dmi/id/modalias") as inp:
         return inp.read()
 
 
@@ -47,6 +48,8 @@ def handle_main():
     base_path = get_config_path()
     plugins_db = PluginsDatabase(os.path.join(base_path, "db"))
     plugin_manager = PluginManager(base_path)
+
+    plugins_db.start()
 
     # Check if the messaging plugin is installed any machine.
     try:
@@ -82,10 +85,10 @@ def handle_messaging_token():
 
     messaging_server_url = MESSAGING_PLUGIN_URL
     if sys.argv[1] == 'set':
-        plugins_db.insert(app_id=get_plugin_id(messaging_server_url),
+        plugins_db.insert(app_id=url_to_plugin_id(messaging_server_url),
                           app_secret_token=sys.argv[2], is_remote=True)
     elif sys.argv[1] == 'get':
-        plugin_data = plugins_db.query(get_plugin_id(messaging_server_url))
+        plugin_data = plugins_db.query(url_to_plugin_id(messaging_server_url))
         print(plugin_data.app_secret_token)
     else:
         print("Supported operations: 'get' and 'set'")
