@@ -1,7 +1,6 @@
 language: python
 python:
   - "3.6"
-  - "2.7"
 
 install:
   - sed -i "s/WeaveLib.git/WeaveLib.git@$TRAVIS_BRANCH/g" requirements.txt
