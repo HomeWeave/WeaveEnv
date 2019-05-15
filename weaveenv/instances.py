@@ -12,19 +12,6 @@ from .database import PluginsDatabase, PluginData
 from .plugins import RunnablePlugin, InstalledPlugin
 
 
-def get_machine_id(base_path):
-    full_path = os.path.join(base_path, ".config")
-    try:
-        with open(full_path) as config_file:
-            return json.load(config_file)["machine_id"]
-    except (ValueError, KeyError):
-        raise
-    except IOError:
-        machine_id = "machine-id-" + str(uuid4())
-        with open(full_path, "w") as config_file:
-            json.dump({"machine_id": machine_id}, config_file)
-
-
 def register_plugin(service, plugin):
     conn = service.get_connection()
     token = service.get_auth_token()

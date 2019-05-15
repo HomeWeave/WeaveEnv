@@ -34,6 +34,11 @@ def get_config_path():
     return os.path.join(weave_base, "weaveenv.db")
 
 
+def get_machine_id():
+    with open("/sys/class/dmi/id/modaias") as inp:
+        return inp.read()
+
+
 def handle_main():
     plugins_db = PluginsDatabase(os.path.join(get_config_path(), "db"))
     plugin_manager = PluginManager(get_config_path(), plugins_db)
