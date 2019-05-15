@@ -15,10 +15,13 @@ from weavelib.services.service_base import MessagingEnabled
 from weaveenv.database import PluginsDatabase
 from weaveenv.http import WeaveHTTPServer
 from weaveenv.plugins import PluginManager, get_plugin_id, VirtualEnvManager
-from weaveenv.plugins import PluginInfoFilter
+from weaveenv.plugins import get_plugin_by_url
 
 
 logging.basicConfig()
+
+
+MESSAGING_PLUGIN_URL = "https://github.com/HomeWeave/WeaveServer.git"
 
 
 def get_config_path():
@@ -40,22 +43,44 @@ def get_machine_id():
 
 
 def handle_main():
-    plugins_db = PluginsDatabase(os.path.join(get_config_path(), "db"))
-    plugin_manager = PluginManager(get_config_path(), plugins_db)
-    http_modules = [
-        ("/plugins", plugin_manager),
-    ]
-    plugin_manager.start()
-    http = WeaveHTTPServer(http_modules)
+    machine_id = get_machine_id()
+    base_path = get_config_path()
+    plugins_db = PluginsDatabase(os.path.join(base_path, "db"))
+    plugin_manager = PluginManager(base_path)
 
-    http.run(port=15000, host="")
+    # Check if the messaging plugin is installed any machine.
+    try:
+        messaging_plugin = get_plugin_by_url(MESSAGING_PLUGIN_URL)
+    except ObjectNotFound:
+        print("No messaging plugin installed.")
+        sys.exit(1)
+
+    if messaging_plugin.machine.machine_id != machine_id:
+        conn = WeaveConnection.discover()
+    else:
+        conn = WeaveConnection.local()
+    conn.connect()
+
+    auth_token = messaging_plugin.machine.app_token
+
+    service = MessagingEnabled(auth_token=auth_token, conn=conn)
+    instance_data = \
+        WeaveEnvInstanceData.get(WeaveEnvInstanceData.machine_id == machine_id)
+
+    weave = LocalWeaveInstance(service, instance_data, plugin_manager)
+    weave.start()
+
+    signal.signal(signal.SIGTERM, lambda x, y: weave.stop())
+    signal.signal(signal.SIGINT, lambda x, y: weave.stop())
+
+    weave.wait()
 
 
 def handle_messaging_token():
     plugins_db = PluginsDatabase(os.path.join(get_config_path(), "db"))
     plugins_db.start()
 
-    messaging_server_url = "https://github.com/HomeWeave/WeaveServer.git"
+    messaging_server_url = MESSAGING_PLUGIN_URL
     if sys.argv[1] == 'set':
         plugins_db.insert(app_id=get_plugin_id(messaging_server_url),
                           app_secret_token=sys.argv[2], is_remote=True)
