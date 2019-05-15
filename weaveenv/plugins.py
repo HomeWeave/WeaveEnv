@@ -295,7 +295,7 @@ class PluginManager(object):
             logger.exception("Installation of plugin failed. Rolling back.")
             if installed_plugin:
                 self.uninstall(installed_plugin)
-            return None
+                raise WeaveException("Installation failed.")
 
     def uninstall(self, installed_plugin):
         installed_plugin.clean()

@@ -37,7 +37,7 @@ def get_config_path():
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
-    return os.path.join(weave_base, "weaveenv.db")
+    return weave_base
 
 
 def get_machine_id():
