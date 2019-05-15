@@ -83,6 +83,10 @@ def list_github_plugins(organization='HomeWeave'):
             yield GitPlugin(repo.clone_url, repo.name, repo.description)
 
 
+def url_to_plugin_id(url):
+    return hashlib.md5(url.encode('utf-8')).hexdigest()
+
+
 class VirtualEnvManager(object):
     def __init__(self, path):
         self.venv_home = path
@@ -122,7 +126,7 @@ class BasePlugin(object):
         self.description = description
 
     def plugin_id(self):
-        return hashlib.md5(self.src.encode('utf-8')).hexdigest()
+        return url_to_plugin_id(self.src)
 
     def install(self, dest_dir, venv):
         raise NotImplementedError
