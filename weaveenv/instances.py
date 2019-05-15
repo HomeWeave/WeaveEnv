@@ -1,4 +1,3 @@
-import json
 import os
 from uuid import uuid4
 
@@ -8,8 +7,8 @@ from weavelib.exceptions import ObjectNotFound
 from weavelib.rpc import RPCServer, ServerAPI, ArgParameter, RPCClient
 from weavelib.rpc import find_rpc
 
-from .database import PluginsDatabase, PluginData
-from .plugins import RunnablePlugin, InstalledPlugin
+from .database import PluginData
+from .plugins import RunnablePlugin, InstalledPlugin, url_to_plugin_id
 
 
 def register_plugin(service, plugin):
@@ -46,6 +45,17 @@ def load_installed_plugins(plugins, service, plugin_manager):
                                           plugin.description))
 
     return result
+
+
+def get_plugin_by_id(self, plugin_id):
+    try:
+        return PluginData.get(PluginData.app_id == plugin_id)
+    except DoesNotExist:
+        raise ObjectNotFound(plugin_id)
+
+
+def get_plugin_by_url(self, url):
+    return get_plugin_by_id(url_to_plugin_id(url))
 
 
 class BaseWeaveEnvInstance(object):
@@ -104,22 +114,3 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
             raise ObjectNotFound(plugin_id)
 
 
-class RemoteWeaveInstance(BaseWeaveEnvInstance):
-    pass
-
-
-class WeaveEnvInstanceManager(object):
-    def __init__(self, base_path):
-        self.plugin_dir = os.path.join(base_path, "plugins")
-        self.venv_dir = os.path.join(base_path, "venv")
-        self.db = PluginsDatabase(base_path, "weave.db")
-        self.machine_id = get_machine_id(base_path)
-
-    def get_plugin_dir(self):
-        return self.plugin_dir
-
-    def get_venv_dir(self):
-        return self.venv_dir
-
-    def get_database(self):
-        return self.db
