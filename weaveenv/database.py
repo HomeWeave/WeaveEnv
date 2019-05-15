@@ -1,5 +1,5 @@
 from peewee import SqliteDatabase, Proxy, Model, CharField, BooleanField
-from peewee import ForeignKeyField
+from peewee import ForeignKeyField, CompositeKey
 
 
 proxy = Proxy()
@@ -11,7 +11,7 @@ class BaseModel(Model):
 
 
 class WeaveEnvInstanceData(BaseModel):
-    machine_id = CharField(unique=True)
+    machine_id = CharField(primary_key=True)
     app_token = CharField()
 
 
@@ -21,6 +21,9 @@ class PluginData(BaseModel):
     description = CharField()
     enabled = BooleanField(default=False)
     machine = ForeignKeyField(WeaveEnvInstanceData, backref='plugins')
+
+    class Meta:
+        primary_key = CompositeKey('app_id', 'machine')
 
 
 class PluginsDatabase(object):
