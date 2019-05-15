@@ -16,7 +16,7 @@ from weavelib.services.service_base import MessagingEnabled
 
 from weaveenv.database import PluginsDatabase, WeaveEnvInstanceData, PluginData
 from weaveenv.http import WeaveHTTPServer
-from weaveenv.instances import get_plugin_by_url
+from weaveenv.instances import get_plugin_by_url, LocalWeaveInstance
 from weaveenv.plugins import PluginManager, VirtualEnvManager, GitPlugin
 from weaveenv.plugins import url_to_plugin_id
 
@@ -53,26 +53,10 @@ def handle_main():
 
     plugins_db.start()
 
-    # Check if the messaging plugin is installed any machine.
-    try:
-        messaging_plugin = get_plugin_by_url(MESSAGING_PLUGIN_URL)
-    except ObjectNotFound:
-        print("No messaging plugin installed.")
-        sys.exit(1)
-
-    if messaging_plugin.machine.machine_id != machine_id:
-        conn = WeaveConnection.discover()
-    else:
-        conn = WeaveConnection.local()
-    conn.connect()
-
-    auth_token = messaging_plugin.machine.app_token
-
-    service = MessagingEnabled(auth_token=auth_token, conn=conn)
     instance_data = \
         WeaveEnvInstanceData.get(WeaveEnvInstanceData.machine_id == machine_id)
 
-    weave = LocalWeaveInstance(service, instance_data, plugin_manager)
+    weave = LocalWeaveInstance(instance_data, plugin_manager)
     weave.start()
 
     signal.signal(signal.SIGTERM, lambda x, y: weave.stop())

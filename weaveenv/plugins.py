@@ -183,8 +183,8 @@ class RunnablePlugin(InstalledPlugin):
         start_timeout = plugin_info["start_timeout"]
         config = plugin_info["config"]
 
-        service = service_cls(self.auth_token, config,
-                              self.venv_manager.venv_home)
+        service = BaseServicePlugin(auth_token=self.auth_token,
+                                    venv_dir=self.venv_manager.venv_home)
 
         if not run_plugin(service, timeout=start_timeout):
             raise WeaveException("Unable to start plugin.")
@@ -241,6 +241,9 @@ class PluginManager(object):
     def start(self, installed_plugins):
         plugins = set(installed_plugins) | set(list_github_plugins())
         self.plugins = {x.plugin_id(): x for x in plugins}
+
+        # self.plugins has the messaging plugin, even before start() is called.
+        self.plugins.update(self.active_plugins)
 
         # Start enabled plugins.
         for plugin in self.plugins.values():
@@ -303,6 +306,9 @@ class PluginManager(object):
     def list(self, params):
         return list(self.plugins.values())
 
-    def get_venv(self, plugin):
-        venv_path = os.path.join(self.venv_dir, plugin.plugin_id())
+    def get_venv(self, plugin_id):
+        venv_path = os.path.join(self.venv_dir, plugin_id)
         return VirtualEnvManager(venv_path)
+
+    def get_plugin_dir(self, plugin_id):
+        return os.path.join(self.plugin_dir, plugin_id)
