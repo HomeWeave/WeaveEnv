@@ -179,12 +179,11 @@ class RunnablePlugin(InstalledPlugin):
     def run(self):
         plugin_info = load_plugin_json(self.src)
 
-        service_cls = plugin_info["service_cls"]
         start_timeout = plugin_info["start_timeout"]
-        config = plugin_info["config"]
 
         service = BaseServicePlugin(auth_token=self.auth_token,
-                                    venv_dir=self.venv_manager.venv_home)
+                                    venv_dir=self.venv_manager.venv_home,
+                                    plugin_dir=self.src)
 
         if not run_plugin(service, timeout=start_timeout):
             raise WeaveException("Unable to start plugin.")

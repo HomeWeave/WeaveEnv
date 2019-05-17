@@ -111,14 +111,9 @@ def handle_weave_launch():
     venv = VirtualEnvManager(venv_path)
     venv.activate()
 
-    raw_info = {
-        "installed": True,
-        "install_path": plugin_dir,
-        "name": os.path.basename(plugin_dir),
-    }
-    plugin_info = PluginInfoFilter().filter(raw_info)
+    plugin_info = load_plugin_json(plugin_dir)
 
-    kwargs = {"venv_dir": venv_path}
+    kwargs = {"venv_dir": venv_path, "plugin_dir": plugin_dir}
 
     if issubclass(plugin_info["service_cls"], MessagingEnabled):
         # Discover messaging
