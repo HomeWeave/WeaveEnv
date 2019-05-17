@@ -2,6 +2,7 @@ import eventlet
 eventlet.monkey_patch()  # NOLINT
 
 import errno
+import json
 import logging
 import os
 import signal
@@ -18,7 +19,7 @@ from weaveenv.database import PluginsDatabase, WeaveEnvInstanceData, PluginData
 from weaveenv.http import WeaveHTTPServer
 from weaveenv.instances import get_plugin_by_url, LocalWeaveInstance
 from weaveenv.plugins import PluginManager, VirtualEnvManager, GitPlugin
-from weaveenv.plugins import url_to_plugin_id
+from weaveenv.plugins import url_to_plugin_id, load_plugin_json
 
 
 logging.basicConfig()
@@ -105,22 +106,19 @@ def handle_weave_launch():
     os.chdir(plugin_dir)
     sys.path.append(plugin_dir)
 
-    token = sys.stdin.readline().strip()
+    params = json.loads(sys.stdin.readline().strip())
 
-    venv_path = sys.argv[2]
-    venv = VirtualEnvManager(venv_path)
+    venv = VirtualEnvManager(params["venv_dir"])
     venv.activate()
 
     plugin_info = load_plugin_json(plugin_dir)
 
-    kwargs = {"venv_dir": venv_path, "plugin_dir": plugin_dir}
-
     if issubclass(plugin_info["service_cls"], MessagingEnabled):
-        # Discover messaging
-        kwargs["conn"] = None  # TODO: Discover for plugins except messaging.
-        kwargs["auth_token"] = token
+        conn = WeaveConnection.discover()
+        conn.connect()
+        params["conn"] = conn
 
-    app = plugin_info["service_cls"](**kwargs)
+    app = plugin_info["service_cls"](**params)
 
     signal.signal(signal.SIGTERM, lambda x, y: app.on_service_stop())
     signal.signal(signal.SIGINT, lambda x, y: app.on_service_stop())
