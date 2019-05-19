@@ -111,7 +111,9 @@ def handle_weave_launch():
     venv = VirtualEnvManager(params["venv_dir"])
     venv.activate()
 
-    plugin_info = load_plugin_json(plugin_dir)
+    ignore_hierarchy = bool(params.get("ignore_hierarchy"))
+    plugin_info = load_plugin_json(plugin_dir,
+                                   ignore_hierarchy=ignore_hierarchy)
 
     if issubclass(plugin_info["service_cls"], MessagingEnabled):
         conn = WeaveConnection.discover()

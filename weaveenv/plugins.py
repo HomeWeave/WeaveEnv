@@ -37,7 +37,7 @@ def stop_plugin(service):
     service.service_stop()
 
 
-def load_plugin_json(install_path):
+def load_plugin_json(install_path, ignore_hierarchy=False):
     try:
         with open(os.path.join(install_path, "plugin.json")) as inp:
             plugin_info = json.load(inp)
@@ -54,7 +54,7 @@ def load_plugin_json(install_path):
         mod, cls = plugin_info["service"].rsplit('.', 1)
         module = getattr(importlib.import_module(mod), cls)
 
-        if not issubclass(module, BaseServicePlugin):
+        if not ignore_hierarchy and not issubclass(module, BaseServicePlugin):
             raise PluginLoadError("Service must inherit BasePlugin.")
     except AttributeError:
         logger.warning("Bad service specification.", exc_info=True)
@@ -172,12 +172,15 @@ class InstalledPlugin(BasePlugin):
 
 
 class RunnablePlugin(InstalledPlugin):
-    def __init__(self, src, venv_manager, name, description, auth_token):
+    def __init__(self, src, venv_manager, name, description, auth_token,
+                 ignore_hierarchy=False):
         super().__init__(src, venv_manager, name, description)
         self.auth_token = auth_token
+        self.ignore_hierarchy = ignore_hierarchy
 
     def run(self):
-        plugin_info = load_plugin_json(self.src)
+        plugin_info = load_plugin_json(self.src,
+                                       ignore_hierarchy=self.ignore_hierarchy)
 
         start_timeout = plugin_info["start_timeout"]
 
