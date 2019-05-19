@@ -108,8 +108,9 @@ def handle_weave_launch():
 
     params = json.loads(sys.stdin.readline().strip())
 
-    venv = VirtualEnvManager(params["venv_dir"])
-    venv.activate()
+    if params.get("venv_dir"):
+        venv = VirtualEnvManager(params["venv_dir"])
+        venv.activate()
 
     ignore_hierarchy = bool(params.get("ignore_hierarchy"))
     plugin_info = load_plugin_json(plugin_dir,
