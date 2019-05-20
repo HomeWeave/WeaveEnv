@@ -283,7 +283,7 @@ class PluginManager(object):
         return True
 
     def install(self, installable_plugin):
-        venv = self.get_venv(installable_plugin)
+        venv = self.get_venv(installable_plugin.plugin_id())
         installed_plugin = None
         try:
             installed_plugin = installable_plugin.install(self.plugin_dir, venv)
