@@ -106,11 +106,11 @@ def handle_messaging_token():
 
 
 def handle_weave_launch():
-    plugin_dir = sys.argv[1]
+    params = json.loads(sys.stdin.readline().strip())
+
+    plugin_dir = params["plugin_dir"]
     os.chdir(plugin_dir)
     sys.path.append(plugin_dir)
-
-    params = json.loads(sys.stdin.readline().strip())
 
     if params.get("venv_dir"):
         venv = VirtualEnvManager(params["venv_dir"])
