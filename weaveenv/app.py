@@ -10,6 +10,7 @@ import sys
 from uuid import uuid4
 
 import appdirs
+from peewee import DoesNotExist
 
 from weavelib.exceptions import ObjectNotFound
 from weavelib.messaging import WeaveConnection
@@ -24,7 +25,6 @@ from weaveenv.logging import LOGGING
 
 
 logging.config.dictConfig(LOGGING)
-
 
 MESSAGING_PLUGIN_URL = "https://github.com/HomeWeave/WeaveServer.git"
 
@@ -55,8 +55,11 @@ def handle_main():
 
     plugins_db.start()
 
-    instance_data = \
-        WeaveEnvInstanceData.get(WeaveEnvInstanceData.machine_id == machine_id)
+    try:
+        instance_data = WeaveEnvInstanceData.get(WeaveEnvInstanceData.machine_id
+                                                 == machine_id)
+    except DoesNotExist:
+        sys.exit("Please re-install messaging plugin.")
 
     weave = LocalWeaveInstance(instance_data, plugin_manager)
     weave.start()
