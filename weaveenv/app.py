@@ -3,7 +3,7 @@ eventlet.monkey_patch()  # NOLINT
 
 import errno
 import json
-import logging
+import logging.config
 import os
 import signal
 import sys
@@ -20,9 +20,10 @@ from weaveenv.http import WeaveHTTPServer
 from weaveenv.instances import get_plugin_by_url, LocalWeaveInstance
 from weaveenv.plugins import PluginManager, VirtualEnvManager, GitPlugin
 from weaveenv.plugins import url_to_plugin_id, load_plugin_json
+from weaveenv.logging import LOGGING
 
 
-logging.basicConfig()
+logging.config.dictConfig(LOGGING)
 
 
 MESSAGING_PLUGIN_URL = "https://github.com/HomeWeave/WeaveServer.git"
