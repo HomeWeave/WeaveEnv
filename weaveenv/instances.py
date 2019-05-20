@@ -30,7 +30,7 @@ def register_plugin(service, plugin):
                                      plugin.src, _block=True)
 
 
-def load_plugin(plugin, plugin_manager, auth_token=None):
+def load_plugin(plugin, plugin_manager, auth_token, ignore_hierarchy=False):
     # TODO: checks to ensure plugins are loadable and are not tampered with.
     path = plugin_manager.get_plugin_dir(plugin.app_id)
     if not os.path.isdir(path):
@@ -39,7 +39,7 @@ def load_plugin(plugin, plugin_manager, auth_token=None):
     venv = plugin_manager.get_venv(plugin.app_id)
     if plugin.enabled and auth_token is not None:
         return RunnablePlugin(path, venv, plugin.name, plugin.description,
-                              auth_token)
+                              auth_token, ignore_hierarchy=ignore_hierarchy)
     else:
         return InstalledPlugin(path, venv, plugin.name, plugin.description)
 
@@ -107,7 +107,8 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
             conn = WeaveConnection.discover()
         else:
             messaging_plugin = load_plugin(messaging_db_plugin,
-                                           self.plugin_manager, auth_token)
+                                           self.plugin_manager, auth_token,
+                                           ignore_hierarchy=True)
             self.plugin_manager.activate(messaging_plugin)
             conn = WeaveConnection.local()
 

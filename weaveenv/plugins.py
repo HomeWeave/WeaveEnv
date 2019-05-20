@@ -186,7 +186,8 @@ class RunnablePlugin(InstalledPlugin):
 
         service = BaseServicePlugin(auth_token=self.auth_token,
                                     venv_dir=self.venv_manager.venv_home,
-                                    plugin_dir=self.src)
+                                    plugin_dir=self.src,
+                                    ignore_hierarchy=self.ignore_hierarchy)
 
         if not run_plugin(service, timeout=start_timeout):
             raise WeaveException("Unable to start plugin.")
