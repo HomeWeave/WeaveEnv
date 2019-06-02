@@ -51,8 +51,11 @@ def get_machine_id():
         lines = [x.strip().decode('UTF-8') for x in out.splitlines()]
         hardware_line = next(x for x in lines if 'Hardware UUID' in x)
         return hardware_line.split()[1].strip()
-    with open("/sys/class/dmi/id/modalias") as inp:
-        return inp.read()
+    elif sys.platform == 'linux':
+       with open("/sys/class/dmi/id/modalias") as inp:
+          return inp.read()
+    else:
+       raise Exception('Unknown System')
 
 
 def handle_main():
