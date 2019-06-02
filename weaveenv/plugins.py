@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from threading import RLock
+from uuid import uuid4
 
 import git
 import virtualenv
@@ -37,7 +38,7 @@ def stop_plugin(service):
     service.service_stop()
 
 
-def load_plugin_json(install_path, ignore_hierarchy=False):
+def load_plugin_json(install_path, load_service=True):
     try:
         with open(os.path.join(install_path, "plugin.json")) as inp:
             plugin_info = json.load(inp)
@@ -46,16 +47,20 @@ def load_plugin_json(install_path, ignore_hierarchy=False):
     except ValueError:
         raise PluginLoadError("Error parsing plugin.json.")
 
-    sys.path.append(install_path)
     try:
         fully_qualified = plugin_info["service"]
         if '.' not in fully_qualified:
             raise PluginLoadError("Bad 'service' specification in plugin.json.")
         mod, cls = plugin_info["service"].rsplit('.', 1)
-        module = getattr(importlib.import_module(mod), cls)
+        module = None
 
-        if not ignore_hierarchy and not issubclass(module, BaseServicePlugin):
-            raise PluginLoadError("Service must inherit BasePlugin.")
+        if load_service:
+            sys.path.append(install_path)
+            try:
+                module = getattr(importlib.import_module(mod), cls)
+            finally:
+                sys.path.pop(-1)
+
     except AttributeError:
         logger.warning("Bad service specification.", exc_info=True)
         raise PluginLoadError("Bad service specification in plugin.json")
@@ -71,6 +76,7 @@ def load_plugin_json(install_path, ignore_hierarchy=False):
         "package_path": plugin_info["service"],
         "config": plugin_info.get("config", {}),
         "start_timeout": plugin_info.get("start_timeout", 30),
+        "service_name": cls,
         "service_cls": module,
     }
 
@@ -172,27 +178,24 @@ class InstalledPlugin(BasePlugin):
 
 
 class RunnablePlugin(InstalledPlugin):
-    def __init__(self, src, venv_manager, name, description, auth_token,
-                 ignore_hierarchy=False):
+    def __init__(self, src, venv_manager, name, description, auth_token):
         super().__init__(src, venv_manager, name, description)
         self.auth_token = auth_token
-        self.ignore_hierarchy = ignore_hierarchy
 
     def run(self):
-        plugin_info = load_plugin_json(self.src,
-                                       ignore_hierarchy=self.ignore_hierarchy)
+        plugin_info = load_plugin_json(self.src, load_service=False)
 
         start_timeout = plugin_info["start_timeout"]
 
         service = BaseServicePlugin(auth_token=self.auth_token,
                                     venv_dir=self.venv_manager.venv_home,
                                     plugin_dir=self.src,
-                                    ignore_hierarchy=self.ignore_hierarchy)
+                                    started_token=str(uuid4()))
 
         if not run_plugin(service, timeout=start_timeout):
             raise WeaveException("Unable to start plugin.")
 
-        logger.info("Started plugin: %s", plugin_info["name"])
+        logger.info("Started plugin: %s", plugin_info["service_name"])
 
         return RunningPlugin(self.src, self.venv_manager, self.name,
                              self.description, service)
