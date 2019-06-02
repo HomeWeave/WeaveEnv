@@ -54,7 +54,7 @@ def get_machine_id():
     elif sys.platform == 'linux':
        with open("/sys/class/dmi/id/modalias") as inp:
           return inp.read()
-    else
+    else:
        raise Exception('Unknown System')
 
 
