@@ -6,6 +6,7 @@ import json
 import logging.config
 import os
 import signal
+import subprocess
 import sys
 from uuid import uuid4
 
@@ -43,6 +44,13 @@ def get_config_path():
 
 
 def get_machine_id():
+    if sys.platform == 'darwin':
+        command = ['system_profiler', 'SPHardwareDataType']
+        process = subprocess.Popen(command, stdout=subprocess.PIPE)
+        out, err = process.communicate()
+        lines = [x.strip().decode('UTF-8') for x in out.splitlines()]
+        hardware_line = next(x for x in lines if 'Hardware UUID' in x)
+        return hardware_line.split()[1].strip()
     with open("/sys/class/dmi/id/modalias") as inp:
         return inp.read()
 
