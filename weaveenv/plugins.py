@@ -273,7 +273,6 @@ class PluginManager(object):
             raise TypeError("Expected a runnable plugin.")
 
         self.active_plugins[plugin.plugin_id()] = plugin.run()
-        logger.info("Started plugin: %s", plugin.name)
         return True
 
     def deactivate(self, plugin):
