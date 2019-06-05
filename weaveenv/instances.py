@@ -21,11 +21,9 @@ def register_plugin(service, plugin):
     conn = service.get_connection()
     token = service.get_auth_token()
 
-    # TODO: Find a find to get find_rpc(..) work for core system RPC too.
-    rpc_info = find_rpc(service, None)
+    rpc_info = find_rpc(service, MESSAGING_PLUGIN_URL, "app_manager")
     client = RPCClient(conn, rpc_info, token)
 
-    # TODO: Make InstalledPlugin, and RunnablePlugin have GitHub url in them.
     return client["register_plugin"](plugin.plugin_id(), plugin.name,
                                      plugin.src, _block=True)
 
