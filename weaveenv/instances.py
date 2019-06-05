@@ -45,6 +45,11 @@ def load_plugin(plugin, plugin_manager, auth_token):
 def load_installed_plugins(plugins, service, plugin_manager):
     result = []
     for plugin in plugins:
+        # Skip over messaging plugin. If it is installed, it should already be
+        # running.
+        if url_to_plugin_id(MESSAGING_PLUGIN_URL) == plugin.app_id:
+            continue
+
         # Register this plugin with ApplicationManager if enabled.
         token = register_plugin(service, plugin) if plugin.enabled else None
         result.append(load_plugin(plugin, plugin_manager, token))
