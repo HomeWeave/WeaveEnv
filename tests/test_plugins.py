@@ -65,15 +65,6 @@ class TestPluginLoadJson(object):
 
         assert ex.value.extra ==  "Bad service specification in plugin.json"
 
-    def test_not_base_plugin(self):
-        # This just tries to import from weaveenv
-        self.write_content("plugin.json",
-                           '{"service": "weaveenv.plugins.VirtualEnvManager"}')
-        with pytest.raises(PluginLoadError) as ex:
-            load_plugin_json(self.plugin_dir)
-
-        assert ex.value.extra == "Service must inherit BasePlugin."
-
     def test_good_plugin_load(self):
         spec = {
             "service": "plugin.main.TestPlugin",
@@ -98,7 +89,8 @@ class TestPluginLoadJson(object):
             "deps": [1, 2, 4],
             "package_path": "plugin.main.TestPlugin",
             "config": {"hello": "world"},
-            "start_timeout": 10
+            "start_timeout": 10,
+            "service_name": "TestPlugin"
         }
 
         plugin_info = load_plugin_json(self.plugin_dir)
