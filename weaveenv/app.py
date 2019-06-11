@@ -101,19 +101,6 @@ def handle_messaging_plugin_install():
     instance_data.save(force_insert=True)
 
 
-def handle_messaging_token():
-    plugins_db = PluginsDatabase(os.path.join(get_config_path(), "db"))
-    plugins_db.start()
-
-    messaging_server_url = MESSAGING_PLUGIN_URL
-    if sys.argv[1] == 'set':
-        plugins_db.insert(app_id=url_to_plugin_id(messaging_server_url),
-                          app_secret_token=sys.argv[2], is_remote=True)
-    elif sys.argv[1] == 'get':
-        plugin_data = plugins_db.query(url_to_plugin_id(messaging_server_url))
-        print(plugin_data.app_secret_token)
-    else:
-        print("Supported operations: 'get' and 'set'")
 
 
 def handle_weave_launch():
