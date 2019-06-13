@@ -13,8 +13,9 @@ from uuid import uuid4
 import appdirs
 from peewee import DoesNotExist
 
-from weavelib.exceptions import ObjectNotFound
+from weavelib.exceptions import ObjectNotFound, WeaveException
 from weavelib.messaging import WeaveConnection
+from weavelib.rpc import RPCClient, find_rpc
 from weavelib.services.service_base import MessagingEnabled
 
 from weaveenv.database import PluginsDatabase, WeaveEnvInstanceData, PluginData
@@ -104,6 +105,35 @@ def handle_messaging_plugin_install():
     plugin_data.save(force_insert=True)
     instance_data.save(force_insert=True)
 
+
+def handle_rpc():
+    class FakeService(MessagingEnabled):
+        def __init__(self, auth_token, conn):
+            super(FakeService, self).__init__(auth_token=auth_token,
+                                                        conn=conn)
+
+        def start(self):
+            self.get_connection().connect()
+
+    app_url = sys.argv[1]
+    rpc_name = sys.argv[2]
+    api_name = sys.argv[3]
+    json_args = sys.argv[4]
+
+    plugins_db = PluginsDatabase(os.path.join(get_config_path(), "db"))
+    plugins_db.start()
+
+    conn = WeaveConnection.discover()
+    conn.connect()
+
+    instance_data = get_instance_data()
+    token = instance_data.app_token
+
+    rpc_info = find_rpc(FakeService(token, conn), app_url, rpc_name)
+    client = RPCClient(conn, rpc_info, token)
+    client.start()
+
+    print(client[api_name](*json.loads(json_args), _block=True))
 
 
 

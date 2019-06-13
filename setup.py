@@ -24,6 +24,7 @@ setup(
             'weave-env = weaveenv.app:handle_main',
             'weave-messaging-install = weaveenv.app:handle_messaging_plugin_install',
             'weave-launch = weaveenv.app:handle_weave_launch',
+            'weave-rpc = weaveenv.app:handle_rpc',
             'discover-messaging-server = weaveenv.app:handle_discover',
         ]
     }
