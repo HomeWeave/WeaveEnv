@@ -86,7 +86,6 @@ def handle_main():
 
 
 def handle_messaging_plugin_install():
-    machine_id = get_machine_id()
     base_path = get_config_path()
     plugins_db = PluginsDatabase(os.path.join(base_path, "db"))
     plugin_manager = PluginManager(base_path)
@@ -97,7 +96,8 @@ def handle_messaging_plugin_install():
     plugin_manager.install(git_plugin)
 
     token = "app-token-" + str(uuid4())
-    instance_data = WeaveEnvInstanceData(machine_id=machine_id, app_token=token)
+    instance_data = WeaveEnvInstanceData(machine_id=get_machine_id(),
+                                         app_token=token)
     plugin_data = PluginData(app_id=url_to_plugin_id(MESSAGING_PLUGIN_URL),
                              name="WeaveServer", description="Messaging",
                              enabled=True, machine=instance_data)
