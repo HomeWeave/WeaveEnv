@@ -58,22 +58,26 @@ def get_machine_id():
        raise Exception('Unknown System')
 
 
+def get_instance_data():
+    try:
+        return WeaveEnvInstanceData.get(WeaveEnvInstanceData.machine_id
+                                            == get_machine_id())
+    except DoesNotExist:
+        sys.exit("Please re-install messaging plugin.")
+
+
 def handle_main():
-    machine_id = get_machine_id()
     base_path = get_config_path()
     plugins_db = PluginsDatabase(os.path.join(base_path, "db"))
     plugin_manager = PluginManager(base_path)
 
     plugins_db.start()
 
+    weave = LocalWeaveInstance(get_instance_data(), plugin_manager)
     try:
-        instance_data = WeaveEnvInstanceData.get(WeaveEnvInstanceData.machine_id
-                                                 == machine_id)
-    except DoesNotExist:
-        sys.exit("Please re-install messaging plugin.")
-
-    weave = LocalWeaveInstance(instance_data, plugin_manager)
-    weave.start()
+        weave.start()
+    except WeaveException:
+        weave.stop()
 
     signal.signal(signal.SIGTERM, lambda x, y: weave.stop())
     signal.signal(signal.SIGINT, lambda x, y: weave.stop())
