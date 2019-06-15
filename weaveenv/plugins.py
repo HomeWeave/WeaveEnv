@@ -296,11 +296,15 @@ class PluginManager(object):
         git_plugin = self.github_plugins[url_to_plugin_id(db_plugin.app_id)]
         venv = VirtualEnvManager(venv_path)
         if db_plugin.enabled and token is not None:
-            return RunnablePlugin(path, venv, db_plugin.name,
-                                  db_plugin.description, token, git_plugin)
+            plugin = RunnablePlugin(path, venv, db_plugin.name,
+                                    db_plugin.description, token, git_plugin)
+        else:
+            plugin = InstalledPlugin(path, venv, db_plugin.name,
+                                     db_plugin.description, git_plugin)
 
-        return InstalledPlugin(path, venv, db_plugin.name,
-                               db_plugin.description, git_plugin)
+        self.plugins[plugin.plugin_id()] = plugin
+        return plugin
+
 
     def stop(self):
         for plugin in self.plugins.values():

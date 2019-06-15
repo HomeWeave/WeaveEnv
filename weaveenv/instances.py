@@ -118,9 +118,8 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
                 self.instance_data.machine_id):
             conn = WeaveConnection.discover()
         else:
-            messaging_plugin = self.plugin_manager.load_plugin(messaging_db_plugin,
-                                                               auth_token)
-            self.plugin_manager.activate(messaging_plugin)
+            self.plugin_manager.load_plugin(messaging_db_plugin, auth_token)
+            self.plugin_manager.activate(MESSAGING_PLUGIN_URL)
             conn = WeaveConnection.local()
 
         conn.connect()
