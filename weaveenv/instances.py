@@ -44,6 +44,36 @@ def get_plugin_by_url(url):
     return get_plugin_by_id(url_to_plugin_id(url))
 
 
+class PluginManagerRPCWrapper(object):
+    def __init__(self, plugin_manager, service):
+        self.plugin_manager = plugin_manager
+        self.rpc_server = RPCServer("PluginManager", "WeaveInstance Manager", [
+            ServerAPI("list_plugins", "List plugins.", [],
+                      self.list_plugins),
+            ServerAPI("activate_plugin", "Activate a plugin", [
+                ArgParameter("plugin_url", "PluginID to activate", str),
+            ], self.plugin_manager.activate),
+            ServerAPI("deactivate_plugin", "Deactivate a plugin", [
+                ArgParameter("plugin_url", "PluginID to deactivate", str),
+            ], self.plugin_manager.deactivate),
+            ServerAPI("install_plugin", "Install a plugin", [
+                ArgParameter("plugin_url", "URL ending with .git.", str),
+            ], self.plugin_manager.install),
+            ServerAPI("uninstall_plugin", "Uninstall a plugin", [
+                ArgParameter("plugin_url", "PluginID to uninstall", str),
+            ], self.plugin_manager.uninstall),
+        ], service)
+
+    def start(self):
+        self.rpc_server.start()
+
+    def stop(self):
+        self.rpc_server.stop()
+
+    def list_plugins(self):
+        return [x.info() for x in self.plugin_manager.list()]
+
+
 class BaseWeaveEnvInstance(object):
     def start(self):
         raise NotImplementedError
@@ -69,9 +99,11 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
         self.instance_data = instance_data
         self.plugin_manager = plugin_manager
         self.stopped = Event()
-        self.rpc_server = None
+        self.rpc_wrapper = None
 
     def start(self):
+        self.plugin_manager.start()
+
         # Insert basic data into the DB such as command-line access Data and
         # current machine data.
         # Check if the messaging plugin is installed any machine.
@@ -94,37 +126,17 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
         conn.connect()
 
         service = MessagingEnabled(auth_token=auth_token, conn=conn)
-        self.rpc_server = RPCServer("WeaveEnv", "WeaveInstance Manager", [
-            ServerAPI("list_plugins", "List plugins.", [], self.list_plugins),
-            ServerAPI("activate_plugin", "Activate a plugin", [
-                ArgParameter("plugin_id", "PluginID to activate", str),
-            ], self.activate),
-            ServerAPI("deactivate_plugin", "Deactivate a plugin", [
-                ArgParameter("plugin_id", "PluginID to deactivate", str),
-            ], self.deactivate),
-            ServerAPI("install_plugin", "Install a plugin", [
-                ArgParameter("plugin_url", "URL ending with .git.", str),
-            ], self.install),
-            ServerAPI("uninstall_plugin", "Uninstall a plugin", [
-                ArgParameter("plugin_id", "PluginID to uninstall", str),
-            ], self.uninstall),
-        ], service)
-
-        installed_plugins = load_installed_plugins(self.instance_data.plugins,
-                                                   service, self.plugin_manager)
-        self.plugin_manager.start(installed_plugins)
-        self.rpc_server.start()
         plugin_tokens = load_installed_plugins(self.instance_data.plugins,
                                                service)
         self.plugin_manager.start_plugins(plugin_tokens)
+        self.rpc_wrapper = PluginManagerRPCWrapper(self.plugin_manager, service)
+        self.rpc_wrapper.start()
 
     def stop(self):
-        self.rpc_server.stop()
+        if self.rpc_wrapper:
+            self.rpc_wrapper.stop()
         self.plugin_manager.stop()
         self.stopped.set()
 
     def wait(self):
         self.stopped.wait()
-
-    def activate(self, plugin_id):
-        pass
