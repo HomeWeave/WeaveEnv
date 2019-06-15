@@ -220,7 +220,7 @@ class RunnablePlugin(InstalledPlugin):
 class RunningPlugin(InstalledPlugin):
     def __init__(self, src, venv_manager, name, description, service,
                  git_plugin):
-        super().__init__(src, venv_manager, name, description)
+        super().__init__(src, venv_manager, name, description, git_plugin)
         self.service = service
 
     def stop(self):
@@ -293,7 +293,7 @@ class PluginManager(object):
         if not os.path.isdir(venv_path):
             return None
 
-        git_plugin = self.github_plugins[url_to_plugin_id(db_plugin.app_id)]
+        git_plugin = self.github_plugins[db_plugin.app_id]
         venv = VirtualEnvManager(venv_path)
         if db_plugin.enabled and token is not None:
             plugin = RunnablePlugin(path, venv, db_plugin.name,
