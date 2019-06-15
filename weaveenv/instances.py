@@ -11,49 +11,26 @@ from weavelib.rpc import find_rpc
 from weavelib.services.service_base import MessagingEnabled
 
 from .database import PluginData
-from .plugins import RunnablePlugin, InstalledPlugin, url_to_plugin_id
+from .plugins import url_to_plugin_id
 
 
 MESSAGING_PLUGIN_URL = "https://github.com/HomeWeave/WeaveServer.git"
 
 
-def register_plugin(service, plugin):
+def load_installed_plugins(db_plugins, service):
     conn = service.get_connection()
     token = service.get_auth_token()
 
     rpc_info = find_rpc(service, MESSAGING_PLUGIN_URL, "app_manager")
     client = RPCClient(conn, rpc_info, token)
 
-    return client["register_plugin"](plugin.plugin_id(), plugin.name,
-                                     plugin.src, _block=True)
+    def register_plugin(plugin):
+        return client["register_plugin"](plugin.plugin_id(), plugin.name,
+                                         plugin.src, _block=True)
 
-
-def load_plugin(plugin, plugin_manager, auth_token):
-    # TODO: checks to ensure plugins are loadable and are not tampered with.
-    path = plugin_manager.get_plugin_dir(plugin.app_id)
-    if not os.path.isdir(path):
-        return None
-
-    venv = plugin_manager.get_venv(plugin.app_id)
-    if plugin.enabled and auth_token is not None:
-        return RunnablePlugin(path, venv, plugin.name, plugin.description,
-                              auth_token)
-    else:
-        return InstalledPlugin(path, venv, plugin.name, plugin.description)
-
-
-def load_installed_plugins(plugins, service, plugin_manager):
-    result = []
-    for plugin in plugins:
-        # Skip over messaging plugin. If it is installed, it should already be
-        # running.
-        if url_to_plugin_id(MESSAGING_PLUGIN_URL) == plugin.app_id:
-            continue
-
-        # Register this plugin with ApplicationManager if enabled.
-        token = register_plugin(service, plugin) if plugin.enabled else None
-        result.append(load_plugin(plugin, plugin_manager, token))
-    return result
+    messaging_app_id = url_to_plugin_id(MESSAGING_PLUGIN_URL)
+    plugins = [x for x in db_plugins if x.app_id != messaging_app_id]
+    return [(x, register_plugin(x) if x.enabled else None) for x in plugins]
 
 
 def get_plugin_by_id(plugin_id):
@@ -109,8 +86,8 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
                 self.instance_data.machine_id):
             conn = WeaveConnection.discover()
         else:
-            messaging_plugin = load_plugin(messaging_db_plugin,
-                                           self.plugin_manager, auth_token)
+            messaging_plugin = self.plugin_manager.load_plugin(messaging_db_plugin,
+                                                               auth_token)
             self.plugin_manager.activate(messaging_plugin)
             conn = WeaveConnection.local()
 
@@ -137,6 +114,9 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
                                                    service, self.plugin_manager)
         self.plugin_manager.start(installed_plugins)
         self.rpc_server.start()
+        plugin_tokens = load_installed_plugins(self.instance_data.plugins,
+                                               service)
+        self.plugin_manager.start_plugins(plugin_tokens)
 
     def stop(self):
         self.rpc_server.stop()

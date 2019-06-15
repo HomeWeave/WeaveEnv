@@ -13,7 +13,7 @@ import git
 import virtualenv
 from github3 import GitHub
 
-from weavelib.exceptions import WeaveException, PluginLoadError
+from weavelib.exceptions import WeaveException, PluginLoadError, ObjectNotFound
 from weavelib.services import BasePlugin as BaseServicePlugin
 
 
@@ -259,55 +259,85 @@ class PluginManager(object):
     def __init__(self, base_path):
         self.plugin_dir = os.path.join(base_path, "plugins")
         self.venv_dir = os.path.join(base_path, "venv")
+        self.github_plugins = {}
         self.plugins = {}
         self.active_plugins = {}
         self.active_plugins_lock = RLock()
 
         os.makedirs(self.plugin_dir, exist_ok=True)
 
-    def start(self, installed_plugins):
-        plugins = set(installed_plugins) | set(list_github_plugins())
-        self.plugins = {x.plugin_id(): x for x in plugins}
+    def start(self):
+        self.github_plugins = {x.plugin_id(): x for x in list_github_plugins()}
 
-        # self.plugins has the messaging plugin, even before start() is called.
+    def start_plugins(self, plugin_tokens):
+        self.plugins = self.github_plugins.copy()
+
+        for db_plugin, token in plugin_tokens:
+            obj = self.load_plugin(db_plugin, token)
+            self.plugins[obj.plugin_id()] = obj
+
+        # self.active_plugins has the messaging plugin. Called before this fn.
         self.plugins.update(self.active_plugins)
 
         # Start enabled plugins.
         for plugin in self.plugins.values():
             if isinstance(plugin, RunnablePlugin):
-                self.activate(plugin, plugin.auth_token)
+                self.activate(plugin)
+
+    def load_plugin(self, db_plugin, token):
+        path = os.path.join(self.plugin_dir, db_plugin.app_id)
+        if not os.path.isdir(path):
+            return None
+
+        venv_path = os.path.join(self.venv_dir, db_plugin.app_id)
+        if not os.path.isdir(venv_path):
+            return None
+
+        git_plugin = self.github_plugins[url_to_plugin_id(db_plugin.app_id)]
+        venv = VirtualEnvManager(venv_path)
+        if db_plugin.enabled and token is not None:
+            return RunnablePlugin(path, venv, db_plugin.name,
+                                  db_plugin.description, token, git_plugin)
+
+        return InstalledPlugin(path, venv, db_plugin.name,
+                               db_plugin.description, git_plugin)
 
     def stop(self):
         for plugin in self.plugins.values():
             if isinstance(plugin, RunningPlugin):
                 plugin.stop()
 
-    def is_active(self, plugin):
+    def is_active(self, plugin_url):
+        plugin = self.get_plugin_by_url(plugin_url)
         with self.active_plugins_lock:
-            return plugin in self.active_plugins
+            return plugin.plugin_id() in self.active_plugins
 
-    def activate(self, plugin):
-        if self.is_active(plugin):
+    def activate(self, plugin_url):
+        if self.is_active(plugin_url):
             return True
 
+        plugin = self.get_plugin_by_url(plugin_url)
         if not isinstance(plugin, RunnablePlugin):
-            raise TypeError("Expected a runnable plugin.")
+            raise PluginLoadError("Plugin is not installed: " + plugin_url)
 
-        self.active_plugins[plugin.plugin_id()] = plugin.run()
+        with self.active_plugins_lock:
+            self.active_plugins[plugin.plugin_id()] = plugin.run()
         return True
 
-    def deactivate(self, plugin):
-        plugin_id = plugin.plugin_id()
-        if not self.is_active(plugin_id):
+    def deactivate(self, plugin_url):
+        if not self.is_active(plugin_url):
             raise ValueError("Plugin is not active.")
 
-        plugin = self.active_plugins[plugin_id]
+        plugin_id = url_to_plugin_id(plugin_url)
+        with self.active_plugins_lock:
+            plugin = self.active_plugins.pop(plugin_id)
         plugin.stop()
-        logger.info("Stopped plugin: %s", plugin.name)
         return True
 
-    def install(self, installable_plugin):
-        venv = self.get_venv(installable_plugin.plugin_id())
+    def install(self, plugin_url):
+        installable_plugin = self.get_plugin_by_url(plugin_url)
+        venv = VirtualEnvManager(os.path.join(self.venv_dir,
+                                              installable_plugin.plugin_id()))
         installed_plugin = None
         try:
             installed_plugin = installable_plugin.install(self.plugin_dir, venv)
@@ -319,22 +349,30 @@ class PluginManager(object):
             if not venv.install(requirements_file=requirements_file):
                 raise WeaveException("Unable to install virtualenv.")
 
-            return installed_plugin
+            self.plugins[installable_plugin.plugin_id()] = installed_plugin
+            return True
         except Exception:
             logger.exception("Installation of plugin failed. Rolling back.")
             if installed_plugin:
                 self.uninstall(installed_plugin)
-                raise WeaveException("Installation failed.")
+                raise PluginLoadError("Installation failed.")
+            return False
 
-    def uninstall(self, installed_plugin):
+    def uninstall(self, plugin_url):
+        if self.is_active(plugin_url):
+            raise PluginLoadError("Must stop the plugin first.")
+
+        installed_plugin =  self.get_plugin_by_url(plugin_url)
         installed_plugin.clean()
+        self.plugins.pop(installable_plugin.plugin_id())
+        return True
 
     def list(self, params):
         return list(self.plugins.values())
 
-    def get_venv(self, plugin_id):
-        venv_path = os.path.join(self.venv_dir, plugin_id)
-        return VirtualEnvManager(venv_path)
-
-    def get_plugin_dir(self, plugin_id):
-        return os.path.join(self.plugin_dir, plugin_id)
+    def get_plugin_by_url(self, plugin_url):
+        plugin_id = url_to_plugin_id(plugin_url)
+        try:
+            return self.plugins[plugin_id]
+        except KeyError:
+            raise ObjectNotFound(plugin_url)
