@@ -153,11 +153,21 @@ class BasePlugin(object):
         return (isinstance(other, BasePlugin) and
                 self.plugin_id() == other.plugin_id())
 
+    def info(self):
+        return {
+            "plugin_id": self.plugin_id(),
+            "name": self.name,
+            "description": self.description,
+            "enabled": False,
+            "active": False
+        }
+
 
 class InstalledPlugin(BasePlugin):
-    def __init__(self, src, venv_manager, name, description):
+    def __init__(self, src, venv_manager, name, description, git_plugin):
         super().__init__(src, name, description)
         self.venv_manager = venv_manager
+        self.git_plugin = git_plugin
 
     def plugin_id(self):
         return os.path.basename(self.src)
@@ -176,10 +186,16 @@ class InstalledPlugin(BasePlugin):
     def get_venv_dir(self):
         return self.venv_manager.venv_home
 
+    def info(self):
+        res = self.git_plugin.info()
+        res['enabled'] = self.is_installed()
+        return res
+
 
 class RunnablePlugin(InstalledPlugin):
-    def __init__(self, src, venv_manager, name, description, auth_token):
-        super().__init__(src, venv_manager, name, description)
+    def __init__(self, src, venv_manager, name, description, auth_token,
+                 git_plugin):
+        super().__init__(src, venv_manager, name, description, git_plugin)
         self.auth_token = auth_token
 
     def run(self):
@@ -198,16 +214,23 @@ class RunnablePlugin(InstalledPlugin):
         logger.info("Started plugin: %s", plugin_info["service_name"])
 
         return RunningPlugin(self.src, self.venv_manager, self.name,
-                             self.description, service)
+                             self.description, service, self.git_plugin)
 
 
 class RunningPlugin(InstalledPlugin):
-    def __init__(self, src, venv_manager, name, description, service):
+    def __init__(self, src, venv_manager, name, description, service,
+                 git_plugin):
         super().__init__(src, venv_manager, name, description)
         self.service = service
 
     def stop(self):
         stop_plugin(self.service)
+
+    def info(self):
+        res = super(RunningPlugin, self).info()
+        res['active'] = True
+        return res
+
 
 
 class GitPlugin(BasePlugin):
@@ -224,14 +247,12 @@ class GitPlugin(BasePlugin):
 
         git.Repo.clone_from(self.clone_url, cloned_location)
         return InstalledPlugin(cloned_location, venv, self.name,
-                               self.description)
+                               self.description, self)
 
-
-class RemoteFilePlugin(BasePlugin):
-    def install(self, dest_dir, venv):
-        plugin_path = os.path.join(dest_dir, self.plugin_id())
-        shutil.copytree(self.src, plugin_path)
-        return InstalledPlugin(plugin_path, venv)
+    def info(self):
+        res = super(GitPlugin, self).info()
+        res['git_url'] = self.clone_url
+        return res
 
 
 class PluginManager(object):
