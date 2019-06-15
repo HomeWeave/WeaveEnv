@@ -109,8 +109,7 @@ def handle_messaging_plugin_install():
 def handle_rpc():
     class FakeService(MessagingEnabled):
         def __init__(self, auth_token, conn):
-            super(FakeService, self).__init__(auth_token=auth_token,
-                                                        conn=conn)
+            super(FakeService, self).__init__(auth_token=auth_token, conn=conn)
 
         def start(self):
             self.get_connection().connect()
