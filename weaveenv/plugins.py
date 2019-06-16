@@ -164,11 +164,35 @@ class BasePlugin(object):
         }
 
 
-class InstalledPlugin(BasePlugin):
-    def __init__(self, src, venv_manager, name, description, git_plugin):
+class RemotePlugin(BasePlugin):
+    def __init__(self, src, name, description, remote_url):
         super().__init__(src, name, description)
+        self.remote_url = src
+
+    def info(self):
+        res = super().info()
+        res['remote_url'] = self.remote_url
+        return res
+
+
+class GitPlugin(RemotePlugin):
+    def install(self, plugin_base_dir, venv):
+        cloned_location = os.path.join(plugin_base_dir, self.plugin_id())
+
+        # Clear the directory if already present.
+        if os.path.isdir(cloned_location):
+            shutil.rmtree(cloned_location)
+
+        git.Repo.clone_from(self.clone_url, cloned_location)
+        return InstalledPlugin(cloned_location, venv, self.name,
+                               self.description, self)
+
+
+class InstalledPlugin(RemotePlugin):
+    def __init__(self, src, venv_manager, name, description, remote_plugin):
+        super().__init__(src, name, description, remote_plugin.remote_url)
         self.venv_manager = venv_manager
-        self.git_plugin = git_plugin
+        self.remote_plugin = remote_plugin
 
     def plugin_id(self):
         return os.path.basename(self.src)
@@ -180,6 +204,7 @@ class InstalledPlugin(BasePlugin):
         if os.path.isdir(self.src):
             shutil.rmtree(self.src)
         self.venv_manager.clean()
+        return self.remote_plugin
 
     def get_plugin_dir(self):
         return self.src
@@ -188,15 +213,17 @@ class InstalledPlugin(BasePlugin):
         return self.venv_manager.venv_home
 
     def info(self):
-        res = self.git_plugin.info()
+        res = self.remote_plugin.info()
         res['installed'] = self.is_installed()
         return res
 
 
 class RunnablePlugin(InstalledPlugin):
     def __init__(self, src, venv_manager, name, description, auth_token,
-                 git_plugin):
-        super().__init__(src, venv_manager, name, description, git_plugin)
+                 installed_plugin):
+        super().__init__(src, venv_manager, name, description,
+                         installed_plugin.remote_plugin)
+        self.installed_plugin = installed_plugin
         self.auth_token = auth_token
 
     def run(self):
@@ -215,67 +242,46 @@ class RunnablePlugin(InstalledPlugin):
         logger.info("Started plugin: %s", plugin_info["service_name"])
 
         return RunningPlugin(self.src, self.venv_manager, self.name,
-                             self.description, service, self.git_plugin)
+                             self.description, service, self)
 
     def info(self):
-        res = super(RunnablePlugin, self).info()
+        res = super().info()
         res['enabled'] = True
         return res
 
 
-class RunningPlugin(InstalledPlugin):
+class RunningPlugin(RunnablePlugin):
     def __init__(self, src, venv_manager, name, description, service,
-                 git_plugin):
-        super().__init__(src, venv_manager, name, description, git_plugin)
+                 runnable_plugin):
+        super().__init__(src, venv_manager, name, description,
+                         runnable_plugin.installed_plugin)
+        self.runnable_plugin = runnable_plugin
         self.service = service
 
     def stop(self):
         stop_plugin(self.service)
+        return self.runnable_plugin
 
     def info(self):
         res = super(RunningPlugin, self).info()
-        res['enabled'] = True
         res['active'] = True
         return res
 
 
 
-class GitPlugin(BasePlugin):
-    def __init__(self, src, name, description):
-        super().__init__(src, name, description)
-        self.clone_url = src
-
-    def install(self, plugin_base_dir, venv):
-        cloned_location = os.path.join(plugin_base_dir, self.plugin_id())
-
-        # Clear the directory if already present.
-        if os.path.isdir(cloned_location):
-            shutil.rmtree(cloned_location)
-
-        git.Repo.clone_from(self.clone_url, cloned_location)
-        return InstalledPlugin(cloned_location, venv, self.name,
-                               self.description, self)
-
-    def info(self):
-        res = super(GitPlugin, self).info()
-        res['git_url'] = self.clone_url
-        return res
-
-
 class PluginManager(object):
-    def __init__(self, base_path):
+    def __init__(self, base_path, lister_fn=list_github_plugins):
         self.plugin_dir = os.path.join(base_path, "plugins")
         self.venv_dir = os.path.join(base_path, "venv")
-        self.github_plugins = {}
+        self.remote_plugins = {}
         self.plugins = {}
-        self.active_plugins = {}
-        self.active_plugins_lock = RLock()
+        self.lister_fn = lister_fn
 
         os.makedirs(self.plugin_dir, exist_ok=True)
 
     def start(self):
-        self.github_plugins = {x.plugin_id(): x for x in list_github_plugins()}
-        self.plugins = self.github_plugins.copy()
+        self.remote_plugins = {x.plugin_id(): x for x in self.lister_fn()}
+        self.plugins = self.remote_plugins.copy()
 
     def start_plugins(self, plugin_tokens):
         for db_plugin, token in plugin_tokens:
@@ -299,14 +305,14 @@ class PluginManager(object):
         if not os.path.isdir(venv_path):
             raise PluginLoadError("VirtualEnv directory not found.")
 
-        git_plugin = self.github_plugins[db_plugin.app_id]
+        remote_plugin = self.remote_plugins[db_plugin.app_id]
         venv = VirtualEnvManager(venv_path)
         if db_plugin.enabled and token is not None:
             plugin = RunnablePlugin(path, venv, db_plugin.name,
-                                    db_plugin.description, token, git_plugin)
+                                    db_plugin.description, token, remote_plugin)
         else:
             plugin = InstalledPlugin(path, venv, db_plugin.name,
-                                     db_plugin.description, git_plugin)
+                                     db_plugin.description, remote_plugin)
 
         self.plugins[plugin.plugin_id()] = plugin
         return plugin
@@ -317,16 +323,11 @@ class PluginManager(object):
             if isinstance(plugin, RunningPlugin):
                 plugin.stop()
 
-    def is_active(self, plugin_url):
-        plugin = self.get_plugin_by_url(plugin_url)
-        with self.active_plugins_lock:
-            return plugin.plugin_id() in self.active_plugins
-
     def activate(self, plugin_url):
-        if self.is_active(plugin_url):
-            return True
-
         plugin = self.get_plugin_by_url(plugin_url)
+        if isinstance(plugin, RunningPlugin):
+            return plugin
+
         if not isinstance(plugin, RunnablePlugin):
             if isinstance(plugin, InstalledPlugin):
                 raise PluginLoadError("Plugin is not enabled: " + plugin_url)
@@ -334,12 +335,13 @@ class PluginManager(object):
                 raise PluginLoadError("Plugin is not installed: " + plugin_url)
 
         with self.active_plugins_lock:
-            self.active_plugins[plugin.plugin_id()] = plugin.run()
+            self.plugins[plugin.plugin_id()] = plugin.run()
         return True
 
     def deactivate(self, plugin_url):
-        if not self.is_active(plugin_url):
-            raise ValueError("Plugin is not active.")
+        plugin = self.get_plugin_by_url(plugin_url)
+        if not isinstance(plugin, RunningPlugin):
+            return plugin
 
         plugin_id = url_to_plugin_id(plugin_url)
         with self.active_plugins_lock:
@@ -371,13 +373,20 @@ class PluginManager(object):
             raise PluginLoadError("Installation failed.")
 
     def uninstall(self, plugin_url):
-        if self.is_active(plugin_url):
+        installed_plugin = self.get_plugin_by_url(plugin_url)
+
+        if isinstance(installed_plugin, RunningPlugin):
             raise PluginLoadError("Must stop the plugin first.")
 
-        installed_plugin =  self.get_plugin_by_url(plugin_url)
-        installed_plugin.clean()
-        self.plugins.pop(installable_plugin.plugin_id())
-        return True
+        if isinstance(installed_plugin, RunnablePlugin):
+            raise PluginLoadError("Must disable the plugin first.")
+
+        if not isinstance(installed_plugin, InstalledPlugin):
+            raise PluginLoadError("Plugin not installed.")
+
+        remote_plugin = installed_plugin.clean()
+        self.plugins[installed_plugin.plugin_id()] = remote_plugin
+        return remote_plugin
 
     def list(self):
         return list(self.plugins.values())

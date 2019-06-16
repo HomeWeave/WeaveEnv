@@ -3,13 +3,15 @@ import os
 import shutil
 import subprocess
 import textwrap
+from glob import glob
 
 import pytest
 
 from weavelib.exceptions import PluginLoadError
 from weavelib.services import BasePlugin
 
-from weaveenv.plugins import load_plugin_json, VirtualEnvManager
+from weaveenv.plugins import load_plugin_json, VirtualEnvManager, PluginManager
+from weaveenv.plugins import InstalledPlugin, RemotePlugin
 
 
 class TestPluginLoadJson(object):
@@ -144,3 +146,92 @@ class TestVirtualEnvManager(object):
         venv.clean()
 
         assert not venv.is_installed()
+
+
+class FileSystemPlugin(RemotePlugin):
+    def install(self, plugin_base_dir, venv):
+        target = os.path.join(plugin_base_dir, self.plugin_id())
+        shutil.copytree(self.remote_url, target)
+        return InstalledPlugin(target, venv, self.name, self.description, self)
+
+
+class TestPluginLifecycle(object):
+    def get_test_plugin_path(self, plugin_dir):
+        testdata = os.path.join(os.path.dirname(__file__), "testdata")
+        return os.path.join(testdata, plugin_dir)
+
+    def get_test_plugin(self, dir_name):
+        path = self.get_test_plugin_path(dir_name)
+        return FileSystemPlugin(path, dir_name, "description", path)
+
+    def list_plugins(self):
+        pattern = os.path.join(os.path.dirname(__file__), "testdata/*/")
+        plugin_dirs = [os.path.basename(x.rstrip('/')) for x in glob(pattern)]
+        return [self.get_test_plugin(x) for x in plugin_dirs]
+
+    @pytest.fixture(autouse=True)
+    def setup(self, tmpdir):
+        self.base_dir = tmpdir.strpath
+
+    def teardown(self):
+        shutil.rmtree(self.base_dir)
+
+    def test_plugin_listing(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+
+        expected = [
+            {
+                "name": "plugin1",
+                "description": "description",
+                "plugin_id": "3fd47894307b054029c34a207347dcdd",
+                "enabled": False,
+                "installed": False,
+                "active": False,
+                "remote_url": self.get_test_plugin_path('plugin1'),
+            }
+        ]
+
+        assert [x.info() for x in pm.list()] == expected
+
+    def test_plugin_install(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+        plugin = pm.install(self.get_test_plugin_path('plugin1'))
+
+        expected = {
+            "name": "plugin1",
+            "description": "description",
+            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "enabled": False,
+            "installed": True,
+            "active": False,
+            "remote_url": self.get_test_plugin_path('plugin1'),
+        }
+
+        assert isinstance(plugin, InstalledPlugin)
+        assert plugin.info() == expected
+
+    def test_plugin_uninstall(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+        plugin = pm.install(self.get_test_plugin_path('plugin1'))
+        plugin = pm.uninstall(self.get_test_plugin_path('plugin1'))
+        expected = {
+            "name": "plugin1",
+            "description": "description",
+            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "enabled": False,
+            "installed": False,
+            "active": False,
+            "remote_url": self.get_test_plugin_path('plugin1'),
+        }
+
+        assert isinstance(plugin, RemotePlugin)
+        assert plugin.info() == expected
+
+    def test_plugin_bad_uninstall(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+        with pytest.raises(PluginLoadError, match="Plugin not installed."):
+            pm.uninstall(self.get_test_plugin_path('plugin1'))
