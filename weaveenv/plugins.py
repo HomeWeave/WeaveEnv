@@ -159,6 +159,7 @@ class BasePlugin(object):
             "name": self.name,
             "description": self.description,
             "enabled": False,
+            "installed": False,
             "active": False
         }
 
@@ -188,7 +189,7 @@ class InstalledPlugin(BasePlugin):
 
     def info(self):
         res = self.git_plugin.info()
-        res['enabled'] = self.is_installed()
+        res['installed'] = self.is_installed()
         return res
 
 
@@ -216,6 +217,11 @@ class RunnablePlugin(InstalledPlugin):
         return RunningPlugin(self.src, self.venv_manager, self.name,
                              self.description, service, self.git_plugin)
 
+    def info(self):
+        res = super(RunnablePlugin, self).info()
+        res['enabled'] = True
+        return res
+
 
 class RunningPlugin(InstalledPlugin):
     def __init__(self, src, venv_manager, name, description, service,
@@ -228,6 +234,7 @@ class RunningPlugin(InstalledPlugin):
 
     def info(self):
         res = super(RunningPlugin, self).info()
+        res['enabled'] = True
         res['active'] = True
         return res
 
@@ -321,7 +328,10 @@ class PluginManager(object):
 
         plugin = self.get_plugin_by_url(plugin_url)
         if not isinstance(plugin, RunnablePlugin):
-            raise PluginLoadError("Plugin is not installed: " + plugin_url)
+            if isinstance(plugin, InstalledPlugin):
+                raise PluginLoadError("Plugin is not enabled: " + plugin_url)
+            else:
+                raise PluginLoadError("Plugin is not installed: " + plugin_url)
 
         with self.active_plugins_lock:
             self.active_plugins[plugin.plugin_id()] = plugin.run()
