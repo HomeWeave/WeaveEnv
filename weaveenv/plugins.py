@@ -268,10 +268,9 @@ class PluginManager(object):
 
     def start(self):
         self.github_plugins = {x.plugin_id(): x for x in list_github_plugins()}
-
-    def start_plugins(self, plugin_tokens):
         self.plugins = self.github_plugins.copy()
 
+    def start_plugins(self, plugin_tokens):
         for db_plugin, token in plugin_tokens:
             obj = self.load_plugin(db_plugin, token)
             self.plugins[obj.plugin_id()] = obj

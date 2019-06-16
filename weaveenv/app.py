@@ -92,9 +92,9 @@ def handle_messaging_plugin_install():
     plugin_manager = PluginManager(base_path)
 
     plugins_db.start()
+    plugin_manager.start()
 
-    git_plugin = GitPlugin(MESSAGING_PLUGIN_URL, "WeaveServer", "Messaging")
-    plugin_manager.install(git_plugin)
+    plugin_manager.install(MESSAGING_PLUGIN_URL)
 
     token = "app-token-" + str(uuid4())
     instance_data = WeaveEnvInstanceData(machine_id=get_machine_id(),
