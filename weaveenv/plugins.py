@@ -363,13 +363,12 @@ class PluginManager(object):
                 raise WeaveException("Unable to install virtualenv.")
 
             self.plugins[installable_plugin.plugin_id()] = installed_plugin
-            return True
+            return installed_plugin
         except Exception:
             logger.exception("Installation of plugin failed. Rolling back.")
             if installed_plugin:
                 self.uninstall(installed_plugin)
-                raise PluginLoadError("Installation failed.")
-            return False
+            raise PluginLoadError("Installation failed.")
 
     def uninstall(self, plugin_url):
         if self.is_active(plugin_url):

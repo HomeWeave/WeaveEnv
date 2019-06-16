@@ -45,22 +45,23 @@ def get_plugin_by_url(url):
 
 
 class PluginManagerRPCWrapper(object):
-    def __init__(self, plugin_manager, service):
+    def __init__(self, plugin_manager, service, instance_data):
         self.plugin_manager = plugin_manager
+        self.instance_data = instance_data
         self.rpc_server = RPCServer("PluginManager", "WeaveInstance Manager", [
             ServerAPI("list_plugins", "List plugins.", [],
                       self.list_plugins),
             ServerAPI("activate_plugin", "Activate a plugin", [
-                ArgParameter("plugin_url", "PluginID to activate", str),
+                ArgParameter("plugin_url", "Plugin URL to activate", str),
             ], self.plugin_manager.activate),
             ServerAPI("deactivate_plugin", "Deactivate a plugin", [
-                ArgParameter("plugin_url", "PluginID to deactivate", str),
+                ArgParameter("plugin_url", "Plugin URL to deactivate", str),
             ], self.plugin_manager.deactivate),
             ServerAPI("install_plugin", "Install a plugin", [
                 ArgParameter("plugin_url", "URL ending with .git.", str),
-            ], self.plugin_manager.install),
+            ], self.install),
             ServerAPI("uninstall_plugin", "Uninstall a plugin", [
-                ArgParameter("plugin_url", "PluginID to uninstall", str),
+                ArgParameter("plugin_url", "Plugin URL to uninstall", str),
             ], self.plugin_manager.uninstall),
         ], service)
 
@@ -72,6 +73,16 @@ class PluginManagerRPCWrapper(object):
 
     def list_plugins(self):
         return [x.info() for x in self.plugin_manager.list()]
+
+    def install(self, plugin_url):
+        installed_plugin = self.plugin_manager.install(plugin_url)
+
+        plugin_data = PluginData(app_id=installed_plugin.plugin_id(),
+                                 name=installed_plugin.name,
+                                 description=installed_plugin.description,
+                                 machine=self.instance_data)
+        plugin_data.save()
+        return installed_plugin.info()
 
 
 class BaseWeaveEnvInstance(object):
@@ -128,7 +139,8 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
         plugin_tokens = load_installed_plugins(self.instance_data.plugins,
                                                service)
         self.plugin_manager.start_plugins(plugin_tokens)
-        self.rpc_wrapper = PluginManagerRPCWrapper(self.plugin_manager, service)
+        self.rpc_wrapper = PluginManagerRPCWrapper(self.plugin_manager, service,
+                                                   self.instance_data)
         self.rpc_wrapper.start()
 
     def stop(self):
