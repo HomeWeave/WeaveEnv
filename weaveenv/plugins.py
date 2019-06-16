@@ -370,7 +370,7 @@ class PluginManager(object):
         self.plugins.pop(installable_plugin.plugin_id())
         return True
 
-    def list(self, params):
+    def list(self):
         return list(self.plugins.values())
 
     def get_plugin_by_url(self, plugin_url):
