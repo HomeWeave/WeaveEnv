@@ -16,7 +16,7 @@ class WeaveEnvInstanceData(BaseModel):
 
 
 class PluginData(BaseModel):
-    app_id = CharField(unique=True)
+    app_id = CharField()
     name = CharField()
     description = CharField()
     enabled = BooleanField(default=False)

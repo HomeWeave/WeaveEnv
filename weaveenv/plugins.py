@@ -293,11 +293,11 @@ class PluginManager(object):
     def load_plugin(self, db_plugin, token):
         path = os.path.join(self.plugin_dir, db_plugin.app_id)
         if not os.path.isdir(path):
-            return None
+            raise PluginLoadError("Plugin directory not found.")
 
         venv_path = os.path.join(self.venv_dir, db_plugin.app_id)
         if not os.path.isdir(venv_path):
-            return None
+            raise PluginLoadError("VirtualEnv directory not found.")
 
         git_plugin = self.github_plugins[db_plugin.app_id]
         venv = VirtualEnvManager(venv_path)
@@ -384,6 +384,9 @@ class PluginManager(object):
 
     def get_plugin_by_url(self, plugin_url):
         plugin_id = url_to_plugin_id(plugin_url)
+        return self.get_plugin_by_id(plugin_id)
+
+    def get_plugin_by_id(self, plugin_id):
         try:
             return self.plugins[plugin_id]
         except KeyError:

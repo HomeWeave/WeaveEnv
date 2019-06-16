@@ -17,36 +17,32 @@ from .plugins import url_to_plugin_id
 MESSAGING_PLUGIN_URL = "https://github.com/HomeWeave/WeaveServer.git"
 
 
-def load_installed_plugins(db_plugins, service):
-    conn = service.get_connection()
-    token = service.get_auth_token()
+class PluginRegistrationHelper(object):
+    def __init__(self, service, plugin_manager):
+        self.service = service
+        self.plugin_manager = plugin_manager
+        self.client = None
 
-    rpc_info = find_rpc(service, MESSAGING_PLUGIN_URL, "app_manager")
-    client = RPCClient(conn, rpc_info, token)
+    def start(self):
+        rpc_info = find_rpc(self.service, MESSAGING_PLUGIN_URL, "app_manager")
+        self.client = RPCClient(self.service.get_connection(), rpc_info,
+                                self.service.get_auth_token())
+        self.client.start()
 
-    def register_plugin(plugin):
-        return client["register_plugin"](plugin.plugin_id(), plugin.name,
-                                         plugin.src, _block=True)
+    def stop(self):
+        self.client.stop()
 
-    messaging_app_id = url_to_plugin_id(MESSAGING_PLUGIN_URL)
-    plugins = [x for x in db_plugins if x.app_id != messaging_app_id]
-    return [(x, register_plugin(x) if x.enabled else None) for x in plugins]
-
-
-def get_plugin_by_id(plugin_id):
-    try:
-        return PluginData.get(PluginData.app_id == plugin_id)
-    except DoesNotExist:
-        raise ObjectNotFound(plugin_id)
-
-
-def get_plugin_by_url(url):
-    return get_plugin_by_id(url_to_plugin_id(url))
+    def register_plugin(self, db_plugin):
+        plugin_url = self.plugin_manager.get_plugin_by_id(db_plugin.app_id)
+        return self.client["register_plugin"](db_plugin.app_id, db_plugin.name,
+                                              plugin_url, _block=True)
 
 
 class PluginManagerRPCWrapper(object):
-    def __init__(self, plugin_manager, service, instance_data):
+    def __init__(self, plugin_manager, registration_helper, service,
+                 instance_data):
         self.plugin_manager = plugin_manager
+        self.registration_helper = registration_helper
         self.instance_data = instance_data
         self.rpc_server = RPCServer("PluginManager", "WeaveInstance Manager", [
             ServerAPI("list_plugins", "List plugins.", [],
@@ -57,6 +53,12 @@ class PluginManagerRPCWrapper(object):
             ServerAPI("deactivate_plugin", "Deactivate a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to deactivate", str),
             ], self.plugin_manager.deactivate),
+            ServerAPI("enable_plugin", "Enable a plugin", [
+                ArgParameter("plugin_url", "Plugin URL to deactivate", str),
+            ], self.enable_plugin),
+            ServerAPI("disable_plugin", "Disable a plugin", [
+                ArgParameter("plugin_url", "Plugin URL to deactivate", str),
+            ], self.disable_plugin),
             ServerAPI("install_plugin", "Install a plugin", [
                 ArgParameter("plugin_url", "URL ending with .git.", str),
             ], self.install),
@@ -74,6 +76,21 @@ class PluginManagerRPCWrapper(object):
     def list_plugins(self):
         return [x.info() for x in self.plugin_manager.list()]
 
+    def enable_plugin(self, plugin_url):
+        db_plugin = self.get_plugin(plugin_url)
+        token = self.registration_helper.register_plugin(db_plugin)
+        db_plugin.enabled = True
+        db_plugin.save()
+
+        return self.plugin_manager.load_plugin(self, db_plugin, token).info()
+
+    def disable_plugin(self, plugin_url):
+        db_plugin = self.get_plugin(plugin_url)
+        db_plugin.enabled = False
+        db_plugin.save()
+
+        return self.plugin_manager.load_plugin(db_plugin, None).info()
+
     def install(self, plugin_url):
         installed_plugin = self.plugin_manager.install(plugin_url)
 
@@ -83,6 +100,14 @@ class PluginManagerRPCWrapper(object):
                                  machine=self.instance_data)
         plugin_data.save()
         return installed_plugin.info()
+
+    def get_plugin(self, plugin_url):
+        plugin_id = url_to_plugin_id(plugin_url)
+        try:
+            return PluginData.get(PluginData.app_id == plugin_id,
+                                  PluginData.machine == self.instance_data)
+        except DoesNotExist:
+            raise ObjectNotFound(plugin_url)
 
 
 class BaseWeaveEnvInstance(object):
@@ -109,18 +134,23 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
     def __init__(self, instance_data, plugin_manager):
         self.instance_data = instance_data
         self.plugin_manager = plugin_manager
+        self.registration_helper = PluginRegistrationHelper(self,
+                                                            plugin_manager)
         self.stopped = Event()
         self.rpc_wrapper = None
 
     def start(self):
         self.plugin_manager.start()
+        self.registration_helper.start()
 
         # Insert basic data into the DB such as command-line access Data and
         # current machine data.
         # Check if the messaging plugin is installed any machine.
+        messaging_app_id = url_to_plugin_id(MESSAGING_PLUGIN_URL)
         try:
-            messaging_db_plugin = get_plugin_by_url(MESSAGING_PLUGIN_URL)
-        except ObjectNotFound:
+            messaging_db_plugin = PluginData.get(PluginData.app_id ==
+                                                 messaging_app_id)
+        except DoesNotExist:
             print("No messaging plugin installed.")
             sys.exit(1)
 
@@ -136,8 +166,10 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
         conn.connect()
 
         service = MessagingEnabled(auth_token=auth_token, conn=conn)
-        plugin_tokens = load_installed_plugins(self.instance_data.plugins,
-                                               service)
+
+        plugins_subset = [x for x in plugins if x.app_id != messaging_app_id]
+        plugin_tokens = [(x, self.registration_helper.register_plugin(x))
+                         for x in plugins_subset]
         self.plugin_manager.start_plugins(plugin_tokens)
         self.rpc_wrapper = PluginManagerRPCWrapper(self.plugin_manager, service,
                                                    self.instance_data)
@@ -146,6 +178,7 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
     def stop(self):
         if self.rpc_wrapper:
             self.rpc_wrapper.stop()
+        self.registration_helper.stop()
         self.plugin_manager.stop()
         self.stopped.set()
 
