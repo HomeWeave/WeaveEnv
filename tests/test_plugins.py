@@ -241,6 +241,19 @@ class TestPluginLifecycle(object):
         with pytest.raises(PluginLoadError, match="Plugin not installed."):
             pm.uninstall(self.get_test_plugin_path('plugin1'))
 
+    def test_uninstall_enabled_plugin(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+        plugin = pm.install(self.get_test_plugin_path('plugin1'))
+
+        db_plugin = PluginData(name="plugin1", description="description",
+                               app_id=plugin.plugin_id(), enabled=True)
+        plugin = pm.load_plugin(db_plugin, "token")
+
+        with pytest.raises(PluginLoadError, match="Must disable the plugin .*"):
+            pm.uninstall(self.get_test_plugin_path('plugin1'))
+
+
     def test_load_plugin_not_enabled(self):
         pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
         pm.start()
