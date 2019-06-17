@@ -13,6 +13,7 @@ from weavelib.services import BasePlugin
 from weaveenv.database import PluginData
 from weaveenv.plugins import load_plugin_json, VirtualEnvManager, PluginManager
 from weaveenv.plugins import InstalledPlugin, RemotePlugin, RunnablePlugin
+from weaveenv.plugins import url_to_plugin_id
 
 
 class TestPluginLoadJson(object):
@@ -157,6 +158,9 @@ class FileSystemPlugin(RemotePlugin):
 
 
 class TestPluginLifecycle(object):
+    def get_test_plugin_id(self, plugin_dir):
+        return url_to_plugin_id(self.get_test_plugin_path(plugin_dir))
+
     def get_test_plugin_path(self, plugin_dir):
         testdata = os.path.join(os.path.dirname(__file__), "testdata")
         return os.path.join(testdata, plugin_dir)
@@ -185,7 +189,7 @@ class TestPluginLifecycle(object):
             {
                 "name": "plugin1",
                 "description": "description",
-                "plugin_id": "3fd47894307b054029c34a207347dcdd",
+                "plugin_id": self.get_test_plugin_id('plugin1'),
                 "enabled": False,
                 "installed": False,
                 "active": False,
@@ -203,7 +207,7 @@ class TestPluginLifecycle(object):
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "plugin_id": self.get_test_plugin_id('plugin1'),
             "enabled": False,
             "installed": True,
             "active": False,
@@ -221,7 +225,7 @@ class TestPluginLifecycle(object):
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "plugin_id": self.get_test_plugin_id('plugin1'),
             "enabled": False,
             "installed": False,
             "active": False,
@@ -252,7 +256,7 @@ class TestPluginLifecycle(object):
         assert plugin.info() == {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "plugin_id": self.get_test_plugin_id('plugin1'),
             "enabled": False,
             "installed": True,
             "active": False,
@@ -273,7 +277,7 @@ class TestPluginLifecycle(object):
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "plugin_id": self.get_test_plugin_id('plugin1'),
             "enabled": True,
             "installed": True,
             "active": False,
@@ -305,7 +309,7 @@ class TestPluginLifecycle(object):
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "plugin_id": self.get_test_plugin_id('plugin1'),
             "enabled": True,
             "installed": True,
             "active": False,
@@ -331,7 +335,7 @@ class TestPluginLifecycle(object):
         assert plugin.info() == {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "plugin_id": self.get_test_plugin_id('plugin1'),
             "enabled": False,
             "installed": True,
             "active": False,
