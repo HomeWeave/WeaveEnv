@@ -165,7 +165,7 @@ class BasePlugin(object):
 
 
 class RemotePlugin(BasePlugin):
-    def __init__(self, src, name, description, remote_url):
+    def __init__(self, src, name, description):
         super().__init__(src, name, description)
         self.remote_url = src
 
