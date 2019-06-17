@@ -20,7 +20,7 @@ from weavelib.services.service_base import MessagingEnabled
 
 from weaveenv.database import PluginsDatabase, WeaveEnvInstanceData, PluginData
 from weaveenv.http import WeaveHTTPServer
-from weaveenv.instances import get_plugin_by_url, LocalWeaveInstance
+from weaveenv.instances import LocalWeaveInstance
 from weaveenv.plugins import PluginManager, VirtualEnvManager, GitPlugin
 from weaveenv.plugins import url_to_plugin_id, load_plugin_json
 from weaveenv.logging import LOGGING

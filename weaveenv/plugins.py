@@ -353,20 +353,18 @@ class PluginManager(object):
             else:
                 raise PluginLoadError("Plugin is not installed: " + plugin_url)
 
-        with self.active_plugins_lock:
-            self.plugins[plugin.plugin_id()] = plugin.run()
-        return True
+        plugin = plugin.run()
+        self.plugins[plugin.plugin_id()] = plugin
+        return plugin
 
     def deactivate(self, plugin_url):
         plugin = self.get_plugin_by_url(plugin_url)
         if not isinstance(plugin, RunningPlugin):
             return plugin
 
-        plugin_id = url_to_plugin_id(plugin_url)
-        with self.active_plugins_lock:
-            plugin = self.active_plugins.pop(plugin_id)
-        plugin.stop()
-        return True
+        plugin = plugin.stop()
+        self.plugins[plugin.plugin_id()] = plugin
+        return plugin
 
     def install(self, plugin_url):
         installable_plugin = self.get_plugin_by_url(plugin_url)

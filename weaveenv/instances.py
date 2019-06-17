@@ -49,10 +49,10 @@ class PluginManagerRPCWrapper(object):
                       self.list_plugins),
             ServerAPI("activate_plugin", "Activate a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to activate", str),
-            ], self.plugin_manager.activate),
+            ], self.activate),
             ServerAPI("deactivate_plugin", "Deactivate a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to deactivate", str),
-            ], self.plugin_manager.deactivate),
+            ], self.deactivate),
             ServerAPI("enable_plugin", "Enable a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to deactivate", str),
             ], self.enable_plugin),
@@ -64,7 +64,7 @@ class PluginManagerRPCWrapper(object):
             ], self.install),
             ServerAPI("uninstall_plugin", "Uninstall a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to uninstall", str),
-            ], self.plugin_manager.uninstall),
+            ], self.uninstall),
         ], service)
 
     def start(self):
@@ -100,6 +100,18 @@ class PluginManagerRPCWrapper(object):
                                  machine=self.instance_data)
         plugin_data.save()
         return installed_plugin.info()
+
+    def uninstall(self, plugin_url):
+        db_plugin = self.get_plugin(plugin_url)
+        plugin = self.plugin_manager.uninstall(plugin_url)
+        db_plugin.delete_instance()
+        return plugin.info()
+
+    def activate(self, plugin_url):
+        return self.plugin_manager.activate(plugin_url).info()
+
+    def deactivate(self, plugin_url):
+        return self.plugin_manager.deactivate(plugin_url).info()
 
     def get_plugin(self, plugin_url):
         plugin_id = url_to_plugin_id(plugin_url)
