@@ -10,8 +10,9 @@ import pytest
 from weavelib.exceptions import PluginLoadError
 from weavelib.services import BasePlugin
 
+from weaveenv.database import PluginData
 from weaveenv.plugins import load_plugin_json, VirtualEnvManager, PluginManager
-from weaveenv.plugins import InstalledPlugin, RemotePlugin
+from weaveenv.plugins import InstalledPlugin, RemotePlugin, RunnablePlugin
 
 
 class TestPluginLoadJson(object):
@@ -235,3 +236,104 @@ class TestPluginLifecycle(object):
         pm.start()
         with pytest.raises(PluginLoadError, match="Plugin not installed."):
             pm.uninstall(self.get_test_plugin_path('plugin1'))
+
+    def test_load_plugin_not_enabled(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+
+        plugin_url = self.get_test_plugin_path('plugin1')
+        plugin = pm.install(plugin_url)
+
+        db_plugin = PluginData(name="plugin1", description="description",
+                               app_id=plugin.plugin_id())
+        plugin = pm.load_plugin(db_plugin, None)
+
+        assert isinstance(plugin, InstalledPlugin)
+        assert plugin.info() == {
+            "name": "plugin1",
+            "description": "description",
+            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "enabled": False,
+            "installed": True,
+            "active": False,
+            "remote_url": self.get_test_plugin_path('plugin1'),
+        }
+
+    def test_load_plugin_enabled(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+
+        plugin_url = self.get_test_plugin_path('plugin1')
+        plugin = pm.install(plugin_url)
+
+        db_plugin = PluginData(name="plugin1", description="description",
+                               app_id=plugin.plugin_id(), enabled=True)
+        plugin = pm.load_plugin(db_plugin, "token")
+
+        expected = {
+            "name": "plugin1",
+            "description": "description",
+            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "enabled": True,
+            "installed": True,
+            "active": False,
+            "remote_url": self.get_test_plugin_path('plugin1'),
+        }
+        assert isinstance(plugin, RunnablePlugin)
+        assert plugin.info() == expected
+
+        # Try load_plugin another time.
+        plugin = pm.load_plugin(db_plugin, "token")
+        assert isinstance(plugin, RunnablePlugin)
+        assert plugin.info() == expected
+
+    def test_load_plugin_enabled_in_another_instance(self):
+        pm1 = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm1.start()
+
+        plugin_url = self.get_test_plugin_path('plugin1')
+        plugin = pm1.install(plugin_url)
+
+        db_plugin = PluginData(name="plugin1", description="description",
+                               app_id=plugin.plugin_id(), enabled=True)
+        plugin = pm1.load_plugin(db_plugin, "token")
+
+        pm2 = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm2.start()
+        plugin = pm2.load_plugin(db_plugin, "token")
+
+        expected = {
+            "name": "plugin1",
+            "description": "description",
+            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "enabled": True,
+            "installed": True,
+            "active": False,
+            "remote_url": self.get_test_plugin_path('plugin1'),
+        }
+        assert isinstance(plugin, RunnablePlugin)
+        assert plugin.info() == expected
+
+    def test_load_plugin_disabled(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+
+        plugin_url = self.get_test_plugin_path('plugin1')
+        plugin = pm.install(plugin_url)
+
+        db_plugin = PluginData(name="plugin1", description="description",
+                               app_id=plugin.plugin_id(), enabled=True)
+        pm.load_plugin(db_plugin, "token")
+
+        db_plugin.enabled = False
+        plugin = pm.load_plugin(db_plugin, None)
+
+        assert plugin.info() == {
+            "name": "plugin1",
+            "description": "description",
+            "plugin_id": "3fd47894307b054029c34a207347dcdd",
+            "enabled": False,
+            "installed": True,
+            "active": False,
+            "remote_url": self.get_test_plugin_path('plugin1'),
+        }

@@ -268,7 +268,6 @@ class RunningPlugin(RunnablePlugin):
         return res
 
 
-
 class PluginManager(object):
     def __init__(self, base_path, lister_fn=list_github_plugins):
         self.plugin_dir = os.path.join(base_path, "plugins")
@@ -305,18 +304,38 @@ class PluginManager(object):
         if not os.path.isdir(venv_path):
             raise PluginLoadError("VirtualEnv directory not found.")
 
-        remote_plugin = self.remote_plugins[db_plugin.app_id]
+        plugin = self.get_plugin_by_id(db_plugin.app_id)
+
         venv = VirtualEnvManager(venv_path)
-        if db_plugin.enabled and token is not None:
-            plugin = RunnablePlugin(path, venv, db_plugin.name,
-                                    db_plugin.description, token, remote_plugin)
-        else:
+        if not isinstance(plugin, InstalledPlugin):
             plugin = InstalledPlugin(path, venv, db_plugin.name,
-                                     db_plugin.description, remote_plugin)
+                                     db_plugin.description, plugin)
 
-        self.plugins[plugin.plugin_id()] = plugin
-        return plugin
+        if db_plugin.enabled != bool((token or "").strip()):
+            raise ValueError("Token passed in not consistent with Plugin.")
 
+        if db_plugin.enabled:
+            if isinstance(plugin, RunnablePlugin):
+                # This apparently has already been loaded.
+                return plugin
+
+            plugin = RunnablePlugin(path, venv, db_plugin.name,
+                                    db_plugin.description, token.strip(),
+                                    plugin)
+            self.plugins[plugin.plugin_id()] = plugin
+            return plugin
+        else:
+            if type(plugin) == InstalledPlugin:
+                return plugin
+
+            if isinstance(plugin, RunningPlugin):
+                raise PluginLoadError("Must stop the plugin first.")
+
+            plugin = InstalledPlugin(path, venv, db_plugin.name,
+                                     db_plugin.description,
+                                     plugin.installed_plugin.remote_plugin)
+            self.plugins[plugin.plugin_id()] = plugin
+            return plugin
 
     def stop(self):
         for plugin in self.plugins.values():
