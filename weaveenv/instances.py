@@ -146,14 +146,12 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
     def __init__(self, instance_data, plugin_manager):
         self.instance_data = instance_data
         self.plugin_manager = plugin_manager
-        self.registration_helper = PluginRegistrationHelper(self,
-                                                            plugin_manager)
         self.stopped = Event()
         self.rpc_wrapper = None
+        self.registration_helper = None
 
     def start(self):
         self.plugin_manager.start()
-        self.registration_helper.start()
 
         # Insert basic data into the DB such as command-line access Data and
         # current machine data.
@@ -178,6 +176,10 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
         conn.connect()
 
         service = MessagingEnabled(auth_token=auth_token, conn=conn)
+
+        self.registration_helper = PluginRegistrationHelper(service,
+                                                            plugin_manager)
+        self.registration_helper.start()
 
         plugins_subset = [x for x in plugins if x.app_id != messaging_app_id]
         plugin_tokens = [(x, self.registration_helper.register_plugin(x))
