@@ -183,14 +183,14 @@ class GitPlugin(RemotePlugin):
         if os.path.isdir(cloned_location):
             shutil.rmtree(cloned_location)
 
-        git.Repo.clone_from(self.clone_url, cloned_location)
+        git.Repo.clone_from(self.remote_url, cloned_location)
         return InstalledPlugin(cloned_location, venv, self.name,
                                self.description, self)
 
 
-class InstalledPlugin(RemotePlugin):
+class InstalledPlugin(BasePlugin):
     def __init__(self, src, venv_manager, name, description, remote_plugin):
-        super().__init__(src, name, description, remote_plugin.remote_url)
+        super().__init__(src, name, description)
         self.venv_manager = venv_manager
         self.remote_plugin = remote_plugin
 
@@ -214,6 +214,7 @@ class InstalledPlugin(RemotePlugin):
 
     def info(self):
         res = self.remote_plugin.info()
+        res.update(super().info())
         res['installed'] = self.is_installed()
         return res
 

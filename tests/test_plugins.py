@@ -167,7 +167,7 @@ class TestPluginLifecycle(object):
 
     def get_test_plugin(self, dir_name):
         path = self.get_test_plugin_path(dir_name)
-        return FileSystemPlugin(path, dir_name, "description", path)
+        return FileSystemPlugin(path, dir_name, "description")
 
     def list_plugins(self):
         pattern = os.path.join(os.path.dirname(__file__), "testdata/*/")
