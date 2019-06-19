@@ -354,3 +354,30 @@ class TestPluginLifecycle(object):
             "active": False,
             "remote_url": self.get_test_plugin_path('plugin1'),
         }
+
+    def test_activate(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+
+        plugin_url = self.get_test_plugin_path('plugin1')
+        plugin = pm.install(plugin_url)
+
+        db_plugin = PluginData(name="plugin1", description="description",
+                               app_id=plugin.plugin_id(), enabled=True)
+        pm.load_plugin(db_plugin, "token")
+        plugin = pm.activate(plugin_url)
+
+        expected = {
+            "name": "plugin1",
+            "description": "description",
+            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "enabled": True,
+            "installed": True,
+            "active": True,
+            "remote_url": self.get_test_plugin_path('plugin1'),
+        }
+        assert plugin.info() == expected
+
+        assert pm.activate(plugin_url).info() == expected
+
+        pm.stop()
