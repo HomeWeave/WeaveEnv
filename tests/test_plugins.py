@@ -380,4 +380,38 @@ class TestPluginLifecycle(object):
 
         assert pm.activate(plugin_url).info() == expected
 
+        plugin = pm.deactivate(plugin_url)
+        expected = {
+            "name": "plugin1",
+            "description": "description",
+            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "enabled": True,
+            "installed": True,
+            "active": False,
+            "remote_url": self.get_test_plugin_path('plugin1'),
+        }
+        assert plugin.info() == expected
+
         pm.stop()
+
+    def test_activate_disabled_plugin(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+
+        plugin_url = self.get_test_plugin_path('plugin1')
+        plugin = pm.install(plugin_url)
+
+        db_plugin = PluginData(name="plugin1", description="description",
+                               app_id=plugin.plugin_id())
+        pm.load_plugin(db_plugin, None)
+
+        with pytest.raises(PluginLoadError, match=".*not enabled.*"):
+            pm.activate(plugin_url)
+
+    def test_activate_remote_plugin(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+
+        plugin_url = self.get_test_plugin_path('plugin1')
+        with pytest.raises(PluginLoadError, match=".*not installed.*"):
+            pm.activate(plugin_url)
