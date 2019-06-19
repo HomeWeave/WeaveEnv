@@ -255,6 +255,7 @@ class RunningPlugin(RunnablePlugin):
     def __init__(self, src, venv_manager, name, description, service,
                  runnable_plugin):
         super().__init__(src, venv_manager, name, description,
+                         runnable_plugin.auth_token,
                          runnable_plugin.installed_plugin)
         self.runnable_plugin = runnable_plugin
         self.service = service
