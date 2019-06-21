@@ -94,10 +94,15 @@ class PluginManagerRPCWrapper(object):
     def install(self, plugin_url):
         installed_plugin = self.plugin_manager.install(plugin_url)
 
-        plugin_data = PluginData(app_id=installed_plugin.plugin_id(),
-                                 name=installed_plugin.name,
-                                 description=installed_plugin.description,
-                                 machine=self.instance_data)
+        params = {
+            "app_id": installed_plugin.plugin_id(),
+            "name": installed_plugin.name,
+            "machine": self.instance_data
+        }
+        if installed_plugin.description:
+            params["description"] = installed_plugin.description
+
+        plugin_data = PluginData(**params)
         plugin_data.save(force_insert=True)
         return installed_plugin.info()
 
