@@ -186,10 +186,17 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
                                                             self.plugin_manager)
         self.registration_helper.start()
 
-        plugins_subset = [x for x in self.instance_data.plugins
-                          if x.app_id != messaging_app_id]
-        plugin_tokens = [(x, self.registration_helper.register_plugin(x))
-                         for x in plugins_subset]
+        plugin_tokens = []
+        for plugin in self.instance_data.plugins:
+            if plugin.app_id == messaging_app_id:
+                continue
+
+            token = None
+            if plugin.enabled:
+                token = self.registration_helper.register_plugin(plugin)
+
+            plugin_tokens.append((plugin, token))
+
         self.plugin_manager.start_plugins(plugin_tokens)
         self.rpc_wrapper = PluginManagerRPCWrapper(self.plugin_manager,
                                                    self.registration_helper,
