@@ -33,7 +33,8 @@ class PluginRegistrationHelper(object):
         self.client.stop()
 
     def register_plugin(self, db_plugin):
-        plugin_url = self.plugin_manager.get_plugin_by_id(db_plugin.app_id)
+        plugin = self.plugin_manager.get_plugin_by_id(db_plugin.app_id)
+        plugin_url = plugin.info()["remote_url"]
         return self.client["register_plugin"](db_plugin.app_id, db_plugin.name,
                                               plugin_url, _block=True)
 
@@ -45,8 +46,7 @@ class PluginManagerRPCWrapper(object):
         self.registration_helper = registration_helper
         self.instance_data = instance_data
         self.rpc_server = RPCServer("PluginManager", "WeaveInstance Manager", [
-            ServerAPI("list_plugins", "List plugins.", [],
-                      self.list_plugins),
+            ServerAPI("list_plugins", "List plugins.", [], self.list_plugins),
             ServerAPI("activate_plugin", "Activate a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to activate", str),
             ], self.activate),
