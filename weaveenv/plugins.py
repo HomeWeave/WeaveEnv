@@ -289,13 +289,10 @@ class PluginManager(object):
             obj = self.load_plugin(db_plugin, token)
             self.plugins[obj.plugin_id()] = obj
 
-        # self.active_plugins has the messaging plugin. Called before this fn.
-        self.plugins.update(self.active_plugins)
-
         # Start enabled plugins.
         for plugin in self.plugins.values():
             if isinstance(plugin, RunnablePlugin):
-                self.activate(plugin)
+                self.activate(plugin.installed_plugin.remote_plugin.remote_url)
 
     def load_plugin(self, db_plugin, token):
         path = os.path.join(self.plugin_dir, db_plugin.app_id)

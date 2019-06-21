@@ -178,15 +178,17 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
         service = MessagingEnabled(auth_token=auth_token, conn=conn)
 
         self.registration_helper = PluginRegistrationHelper(service,
-                                                            plugin_manager)
+                                                            self.plugin_manager)
         self.registration_helper.start()
 
-        plugins_subset = [x for x in plugins if x.app_id != messaging_app_id]
+        plugins_subset = [x for x in self.instance_data.plugins
+                          if x.app_id != messaging_app_id]
         plugin_tokens = [(x, self.registration_helper.register_plugin(x))
                          for x in plugins_subset]
         self.plugin_manager.start_plugins(plugin_tokens)
-        self.rpc_wrapper = PluginManagerRPCWrapper(self.plugin_manager, service,
-                                                   self.instance_data)
+        self.rpc_wrapper = PluginManagerRPCWrapper(self.plugin_manager,
+                                                   self.registration_helper,
+                                                   service, self.instance_data)
         self.rpc_wrapper.start()
 
     def stop(self):
