@@ -98,7 +98,7 @@ class PluginManagerRPCWrapper(object):
                                  name=installed_plugin.name,
                                  description=installed_plugin.description,
                                  machine=self.instance_data)
-        plugin_data.save()
+        plugin_data.save(force_insert=True)
         return installed_plugin.info()
 
     def uninstall(self, plugin_url):
