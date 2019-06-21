@@ -18,7 +18,7 @@ class WeaveEnvInstanceData(BaseModel):
 class PluginData(BaseModel):
     app_id = CharField()
     name = CharField()
-    description = CharField()
+    description = CharField(default="")
     enabled = BooleanField(default=False)
     machine = ForeignKeyField(WeaveEnvInstanceData, backref='plugins')
 
