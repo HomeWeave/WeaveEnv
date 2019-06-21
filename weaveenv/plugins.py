@@ -153,6 +153,9 @@ class BasePlugin(object):
         return (isinstance(other, BasePlugin) and
                 self.plugin_id() == other.plugin_id())
 
+    def __str__(self):
+        return "<Plugin: {} from {}>".format(self.name, self.src)
+
     def info(self):
         return {
             "plugin_id": self.plugin_id(),
@@ -217,6 +220,9 @@ class InstalledPlugin(BasePlugin):
         res.update(super().info())
         res['installed'] = self.is_installed()
         return res
+
+    def __str__(self):
+        return str(self.remote_plugin)
 
 
 class RunnablePlugin(InstalledPlugin):
@@ -292,6 +298,7 @@ class PluginManager(object):
         # Start enabled plugins.
         for plugin in self.plugins.values():
             if isinstance(plugin, RunnablePlugin):
+                logger.info("Activating: %s", str(plugin))
                 self.activate(plugin.installed_plugin.remote_plugin.remote_url)
 
     def load_plugin(self, db_plugin, token):
