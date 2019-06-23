@@ -82,7 +82,7 @@ class PluginManagerRPCWrapper(object):
         db_plugin.enabled = True
         db_plugin.save()
 
-        return self.plugin_manager.load_plugin(self, db_plugin, token).info()
+        return self.plugin_manager.load_plugin(db_plugin, token).info()
 
     def disable_plugin(self, plugin_url):
         db_plugin = self.get_plugin(plugin_url)
