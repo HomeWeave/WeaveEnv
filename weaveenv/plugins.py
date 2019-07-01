@@ -104,6 +104,7 @@ class VirtualEnvManager(object):
         virtualenv.create_environment(self.venv_home, clear=True)
 
         if requirements_file:
+            return True
             args = [os.path.join(self.venv_home, 'bin/python'), '-m', 'pip',
                     'install', '-r', requirements_file]
             try:
@@ -422,4 +423,4 @@ class PluginManager(object):
         try:
             return self.plugins[plugin_id]
         except KeyError:
-            raise ObjectNotFound(plugin_url)
+            raise ObjectNotFound(plugin_id)
