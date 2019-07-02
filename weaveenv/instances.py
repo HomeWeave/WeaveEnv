@@ -193,6 +193,8 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
 
             token = None
             if plugin.enabled:
+                # TODO: try-except for register_plugin. Support loading plugin
+                # in error state.
                 token = self.registration_helper.register_plugin(plugin)
 
             plugin_tokens.append((plugin, token))
