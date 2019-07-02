@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import sys
-from threading import RLock
 from uuid import uuid4
 
 import git
@@ -104,7 +103,6 @@ class VirtualEnvManager(object):
         virtualenv.create_environment(self.venv_home, clear=True)
 
         if requirements_file:
-            return True
             args = [os.path.join(self.venv_home, 'bin/python'), '-m', 'pip',
                     'install', '-r', requirements_file]
             try:
