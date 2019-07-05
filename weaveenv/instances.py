@@ -18,9 +18,8 @@ MESSAGING_PLUGIN_URL = "https://github.com/HomeWeave/WeaveServer.git"
 
 
 class PluginRegistrationHelper(object):
-    def __init__(self, service, plugin_manager):
+    def __init__(self, service):
         self.service = service
-        self.plugin_manager = plugin_manager
         self.client = None
 
     def start(self):
@@ -33,10 +32,8 @@ class PluginRegistrationHelper(object):
         self.client.stop()
 
     def register_plugin(self, db_plugin):
-        plugin = self.plugin_manager.get_plugin_by_id(db_plugin.app_id)
-        plugin_url = plugin.info()["remote_url"]
-        return self.client["register_plugin"](db_plugin.app_id, db_plugin.name,
-                                              plugin_url, _block=True)
+        return self.client["register_plugin"](db_plugin.name, db_plugin.app_url,
+                                              _block=True)
 
 
 class PluginManagerRPCWrapper(object):
@@ -182,8 +179,7 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
 
         service = MessagingEnabled(auth_token=auth_token, conn=conn)
 
-        self.registration_helper = PluginRegistrationHelper(service,
-                                                            self.plugin_manager)
+        self.registration_helper = PluginRegistrationHelper(service)
         self.registration_helper.start()
 
         plugin_tokens = []
