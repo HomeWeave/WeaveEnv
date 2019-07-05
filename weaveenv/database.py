@@ -16,14 +16,14 @@ class WeaveEnvInstanceData(BaseModel):
 
 
 class PluginData(BaseModel):
-    app_id = CharField()
+    app_url = CharField()
     name = CharField()
     description = CharField(default="")
     enabled = BooleanField(default=False)
     machine = ForeignKeyField(WeaveEnvInstanceData, backref='plugins')
 
     class Meta:
-        primary_key = CompositeKey('app_id', 'machine')
+        primary_key = CompositeKey('app_url', 'machine')
 
 
 class PluginsDatabase(object):

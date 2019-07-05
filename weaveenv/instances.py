@@ -92,7 +92,7 @@ class PluginManagerRPCWrapper(object):
         installed_plugin = self.plugin_manager.install(plugin_url)
 
         params = {
-            "app_id": installed_plugin.plugin_id(),
+            "app_url": plugin_url,
             "name": installed_plugin.name,
             "machine": self.instance_data
         }
@@ -116,9 +116,8 @@ class PluginManagerRPCWrapper(object):
         return self.plugin_manager.deactivate(plugin_url).info()
 
     def get_plugin(self, plugin_url):
-        plugin_id = url_to_plugin_id(plugin_url)
         try:
-            return PluginData.get(PluginData.app_id == plugin_id,
+            return PluginData.get(PluginData.app_url == plugin_url,
                                   PluginData.machine == self.instance_data)
         except DoesNotExist:
             raise ObjectNotFound(plugin_url)
@@ -155,13 +154,10 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
     def start(self):
         self.plugin_manager.start()
 
-        # Insert basic data into the DB such as command-line access Data and
-        # current machine data.
-        # Check if the messaging plugin is installed any machine.
-        messaging_app_id = url_to_plugin_id(MESSAGING_PLUGIN_URL)
+        # Check if the messaging plugin is installed on any machine.
         try:
-            messaging_db_plugin = PluginData.get(PluginData.app_id ==
-                                                 messaging_app_id)
+            messaging_db_plugin = PluginData.get(PluginData.app_url ==
+                                                 MESSAGING_PLUGIN_URL)
         except DoesNotExist:
             print("No messaging plugin installed.")
             sys.exit(1)
@@ -184,7 +180,9 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
 
         plugin_tokens = []
         for plugin in self.instance_data.plugins:
-            if plugin.app_id == messaging_app_id:
+            # We should have either started this above, or shouldn't be starting
+            # at all.
+            if plugin.app_url == MESSAGING_PLUGIN_URL:
                 continue
 
             token = None

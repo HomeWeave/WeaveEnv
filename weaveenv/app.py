@@ -99,7 +99,7 @@ def handle_messaging_plugin_install():
     token = "app-token-" + str(uuid4())
     instance_data = WeaveEnvInstanceData(machine_id=get_machine_id(),
                                          app_token=token)
-    plugin_data = PluginData(app_id=url_to_plugin_id(MESSAGING_PLUGIN_URL),
+    plugin_data = PluginData(app_url=MESSAGING_PLUGIN_URL,
                              name="WeaveServer", description="Messaging",
                              enabled=True, machine=instance_data)
     plugin_data.save(force_insert=True)

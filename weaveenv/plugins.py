@@ -301,15 +301,16 @@ class PluginManager(object):
                 self.activate(plugin.installed_plugin.remote_plugin.remote_url)
 
     def load_plugin(self, db_plugin, token):
-        path = os.path.join(self.plugin_dir, db_plugin.app_id)
+        plugin_id = url_to_plugin_id(db_plugin.app_url)
+        path = os.path.join(self.plugin_dir, plugin_id)
         if not os.path.isdir(path):
             raise PluginLoadError("Plugin directory not found.")
 
-        venv_path = os.path.join(self.venv_dir, db_plugin.app_id)
+        venv_path = os.path.join(self.venv_dir, plugin_id)
         if not os.path.isdir(venv_path):
             raise PluginLoadError("VirtualEnv directory not found.")
 
-        plugin = self.get_plugin_by_id(db_plugin.app_id)
+        plugin = self.get_plugin_by_id(plugin_id)
 
         venv = VirtualEnvManager(venv_path)
         if not isinstance(plugin, InstalledPlugin):
