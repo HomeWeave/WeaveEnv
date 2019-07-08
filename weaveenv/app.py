@@ -19,7 +19,6 @@ from weavelib.rpc import RPCClient, find_rpc
 from weavelib.services.service_base import MessagingEnabled
 
 from weaveenv.database import PluginsDatabase, WeaveEnvInstanceData, PluginData
-from weaveenv.http import WeaveHTTPServer
 from weaveenv.instances import LocalWeaveInstance
 from weaveenv.plugins import PluginManager, VirtualEnvManager, GitPlugin
 from weaveenv.plugins import url_to_plugin_id, load_plugin_json
