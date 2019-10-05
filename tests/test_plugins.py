@@ -217,6 +217,26 @@ class TestPluginLifecycle(object):
         assert isinstance(plugin, InstalledPlugin)
         assert plugin.info() == expected
 
+    def test_plugin_double_install(self):
+        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+        pm.start()
+        plugin = pm.install(self.get_test_plugin_path('plugin1'))
+
+        expected = {
+            "name": "plugin1",
+            "description": "description",
+            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "enabled": False,
+            "installed": True,
+            "active": False,
+            "remote_url": self.get_test_plugin_path('plugin1'),
+        }
+
+        assert isinstance(plugin, InstalledPlugin)
+
+        plugin_new = pm.install(self.get_test_plugin_path('plugin1'))
+        assert plugin_new is plugin
+
     def test_plugin_uninstall(self):
         pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
         pm.start()

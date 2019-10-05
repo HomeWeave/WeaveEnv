@@ -199,6 +199,9 @@ class InstalledPlugin(BasePlugin):
     def plugin_id(self):
         return os.path.basename(self.src)
 
+    def install(self, plugin_base_dir, venv):
+        return self
+
     def is_installed(self):
         return os.path.isdir(self.src) and self.venv_manager.is_installed()
 
