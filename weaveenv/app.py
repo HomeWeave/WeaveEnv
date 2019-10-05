@@ -131,7 +131,8 @@ def handle_rpc():
     client = RPCClient(conn, rpc_info, token)
     client.start()
 
-    print(json.dumps(client[api_name](*json.loads(json_args), _block=True)))
+    print(json.dumps(client[api_name](*json.loads(json_args), _block=True),
+          indent=2))
 
 
 
