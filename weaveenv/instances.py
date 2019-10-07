@@ -75,18 +75,17 @@ class PluginManagerRPCWrapper(object):
 
     def enable_plugin(self, plugin_url):
         db_plugin = self.get_plugin(plugin_url)
-        token = self.registration_helper.register_plugin(db_plugin)
         db_plugin.enabled = True
         db_plugin.save()
 
-        return self.plugin_manager.load_plugin(db_plugin, token).info()
+        return self.plugin_manager.load_plugin(db_plugin).info()
 
     def disable_plugin(self, plugin_url):
         db_plugin = self.get_plugin(plugin_url)
         db_plugin.enabled = False
         db_plugin.save()
 
-        return self.plugin_manager.load_plugin(db_plugin, None).info()
+        return self.plugin_manager.load_plugin(db_plugin).info()
 
     def install(self, plugin_url):
         installed_plugin = self.plugin_manager.install(plugin_url)
@@ -110,7 +109,9 @@ class PluginManagerRPCWrapper(object):
         return plugin.info()
 
     def activate(self, plugin_url):
-        return self.plugin_manager.activate(plugin_url).info()
+        db_plugin = self.get_plugin(plugin_url)
+        token = self.registration_helper.register_plugin(db_plugin)
+        return self.plugin_manager.activate(plugin_url, token).info()
 
     def deactivate(self, plugin_url):
         return self.plugin_manager.deactivate(plugin_url).info()
@@ -167,8 +168,8 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
                 self.instance_data.machine_id):
             conn = WeaveConnection.discover()
         else:
-            self.plugin_manager.load_plugin(messaging_db_plugin, auth_token)
-            self.plugin_manager.activate(MESSAGING_PLUGIN_URL)
+            self.plugin_manager.load_plugin(messaging_db_plugin)
+            self.plugin_manager.activate(MESSAGING_PLUGIN_URL, auth_token)
             conn = WeaveConnection.local()
 
         conn.connect()

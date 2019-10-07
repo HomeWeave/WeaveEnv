@@ -269,7 +269,7 @@ class TestPluginLifecycle(object):
 
         db_plugin = PluginData(name="plugin1", description="description",
                                app_url=plugin_url, enabled=True)
-        plugin = pm.load_plugin(db_plugin, "token")
+        plugin = pm.load_plugin(db_plugin)
 
         with pytest.raises(PluginLoadError, match="Must disable the plugin .*"):
             pm.uninstall(self.get_test_plugin_path('plugin1'))
@@ -284,7 +284,7 @@ class TestPluginLifecycle(object):
 
         db_plugin = PluginData(name="plugin1", description="description",
                                app_url=plugin_url)
-        plugin = pm.load_plugin(db_plugin, None)
+        plugin = pm.load_plugin(db_plugin)
 
         assert isinstance(plugin, InstalledPlugin)
         assert plugin.info() == {
@@ -306,7 +306,7 @@ class TestPluginLifecycle(object):
 
         db_plugin = PluginData(name="plugin1", description="description",
                                app_url=plugin_url, enabled=True)
-        plugin = pm.load_plugin(db_plugin, "token")
+        plugin = pm.load_plugin(db_plugin)
 
         expected = {
             "name": "plugin1",
@@ -321,7 +321,7 @@ class TestPluginLifecycle(object):
         assert plugin.info() == expected
 
         # Try load_plugin another time.
-        plugin = pm.load_plugin(db_plugin, "token")
+        plugin = pm.load_plugin(db_plugin)
         assert isinstance(plugin, EnabledPlugin)
         assert plugin.info() == expected
 
@@ -334,11 +334,11 @@ class TestPluginLifecycle(object):
 
         db_plugin = PluginData(name="plugin1", description="description",
                                app_url=plugin_url, enabled=True)
-        plugin = pm1.load_plugin(db_plugin, "token")
+        plugin = pm1.load_plugin(db_plugin)
 
         pm2 = PluginManager(self.base_dir, lister_fn=self.list_plugins)
         pm2.start()
-        plugin = pm2.load_plugin(db_plugin, "token")
+        plugin = pm2.load_plugin(db_plugin)
 
         expected = {
             "name": "plugin1",
@@ -361,10 +361,10 @@ class TestPluginLifecycle(object):
 
         db_plugin = PluginData(name="plugin1", description="description",
                                app_url=plugin_url, enabled=True)
-        pm.load_plugin(db_plugin, "token")
+        pm.load_plugin(db_plugin)
 
         db_plugin.enabled = False
-        plugin = pm.load_plugin(db_plugin, None)
+        plugin = pm.load_plugin(db_plugin)
 
         assert plugin.info() == {
             "name": "plugin1",
@@ -385,8 +385,8 @@ class TestPluginLifecycle(object):
 
         db_plugin = PluginData(name="plugin1", description="description",
                                app_url=plugin_url, enabled=True)
-        pm.load_plugin(db_plugin, "token")
-        plugin = pm.activate(plugin_url)
+        pm.load_plugin(db_plugin)
+        plugin = pm.activate(plugin_url, "token")
 
         expected = {
             "name": "plugin1",
@@ -399,7 +399,7 @@ class TestPluginLifecycle(object):
         }
         assert plugin.info() == expected
 
-        assert pm.activate(plugin_url).info() == expected
+        assert pm.activate(plugin_url, "token").info() == expected
 
         plugin = pm.deactivate(plugin_url)
         expected = {
@@ -424,10 +424,10 @@ class TestPluginLifecycle(object):
 
         db_plugin = PluginData(name="plugin1", description="description",
                                app_url=plugin_url)
-        pm.load_plugin(db_plugin, None)
+        pm.load_plugin(db_plugin)
 
         with pytest.raises(PluginLoadError, match=".*not enabled.*"):
-            pm.activate(plugin_url)
+            pm.activate(plugin_url, "token")
 
     def test_activate_remote_plugin(self):
         pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
@@ -435,4 +435,4 @@ class TestPluginLifecycle(object):
 
         plugin_url = self.get_test_plugin_path('plugin1')
         with pytest.raises(PluginLoadError, match=".*not installed.*"):
-            pm.activate(plugin_url)
+            pm.activate(plugin_url, "token")

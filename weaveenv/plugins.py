@@ -228,19 +228,17 @@ class InstalledPlugin(BasePlugin):
 
 
 class EnabledPlugin(InstalledPlugin):
-    def __init__(self, src, venv_manager, name, description, auth_token,
-                 installed_plugin):
+    def __init__(self, src, venv_manager, name, description, installed_plugin):
         super().__init__(src, venv_manager, name, description,
                          installed_plugin.remote_plugin)
         self.installed_plugin = installed_plugin
-        self.auth_token = auth_token
 
-    def run(self):
+    def run(self, auth_token):
         plugin_info = load_plugin_json(self.src, load_service=False)
 
         start_timeout = plugin_info["start_timeout"]
 
-        service = BaseServicePlugin(auth_token=self.auth_token,
+        service = BaseServicePlugin(auth_token=auth_token,
                                     venv_dir=self.venv_manager.venv_home,
                                     plugin_dir=self.src,
                                     started_token=str(uuid4()))
@@ -263,8 +261,7 @@ class RunningPlugin(EnabledPlugin):
     def __init__(self, src, venv_manager, name, description, service,
                  enabled_plugin):
         super().__init__(src, venv_manager, name, description,
-                         runnable_plugin.auth_token,
-                         runnable_plugin.installed_plugin)
+                         enabled_plugin.installed_plugin)
         self.enabled_plugin = enabled_plugin
         self.service = service
 
@@ -294,16 +291,15 @@ class PluginManager(object):
 
     def start_plugins(self, plugin_tokens):
         for db_plugin, token in plugin_tokens:
-            obj = self.load_plugin(db_plugin, token)
+            obj = self.load_plugin(db_plugin)
             self.plugins[obj.plugin_id()] = obj
 
-        # Start enabled plugins.
-        for plugin in self.plugins.values():
-            if isinstance(plugin, RunnablePlugin):
-                logger.info("Activating: %s", str(plugin))
-                self.activate(plugin.installed_plugin.remote_plugin.remote_url)
+            if isinstance(obj, EnabledPlugin):
+                logger.info("Activating: %s", str(obj))
+                self.activate(obj.installed_plugin.remote_plugin.remote_url,
+                              token)
 
-    def load_plugin(self, db_plugin, token):
+    def load_plugin(self, db_plugin):
         plugin_id = url_to_plugin_id(db_plugin.app_url)
         path = os.path.join(self.plugin_dir, plugin_id)
         if not os.path.isdir(path):
@@ -320,25 +316,18 @@ class PluginManager(object):
             plugin = InstalledPlugin(path, venv, db_plugin.name,
                                      db_plugin.description, plugin)
 
-        if db_plugin.enabled != bool((token or "").strip()):
-            raise ValueError("Token passed in not consistent with Plugin.")
-
         if db_plugin.enabled:
             if isinstance(plugin, EnabledPlugin):
                 # This apparently has already been loaded.
                 return plugin
 
             plugin = EnabledPlugin(path, venv, db_plugin.name,
-                                    db_plugin.description, token.strip(),
-                                    plugin)
+                                    db_plugin.description, plugin)
             self.plugins[plugin.plugin_id()] = plugin
             return plugin
         else:
             if type(plugin) == InstalledPlugin:
                 return plugin
-
-            if isinstance(plugin, RunningPlugin):
-                raise PluginLoadError("Must stop the plugin first.")
 
             plugin = InstalledPlugin(path, venv, db_plugin.name,
                                      db_plugin.description,
@@ -351,7 +340,7 @@ class PluginManager(object):
             if isinstance(plugin, RunningPlugin):
                 plugin.stop()
 
-    def activate(self, plugin_url):
+    def activate(self, plugin_url, token):
         plugin = self.get_plugin_by_url(plugin_url)
         if isinstance(plugin, RunningPlugin):
             return plugin
@@ -362,7 +351,10 @@ class PluginManager(object):
             else:
                 raise PluginLoadError("Plugin is not installed: " + plugin_url)
 
-        plugin = plugin.run()
+        if not token.strip():
+            raise PluginLoadError("Invalid token.")
+
+        plugin = plugin.run(token.strip())
         self.plugins[plugin.plugin_id()] = plugin
         return plugin
 
