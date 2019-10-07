@@ -12,7 +12,7 @@ from weavelib.services import BasePlugin
 
 from weaveenv.database import PluginData
 from weaveenv.plugins import load_plugin_json, VirtualEnvManager, PluginManager
-from weaveenv.plugins import InstalledPlugin, RemotePlugin, RunnablePlugin
+from weaveenv.plugins import InstalledPlugin, RemotePlugin, EnabledPlugin
 from weaveenv.plugins import url_to_plugin_id
 
 
@@ -317,12 +317,12 @@ class TestPluginLifecycle(object):
             "active": False,
             "remote_url": self.get_test_plugin_path('plugin1'),
         }
-        assert isinstance(plugin, RunnablePlugin)
+        assert isinstance(plugin, EnabledPlugin)
         assert plugin.info() == expected
 
         # Try load_plugin another time.
         plugin = pm.load_plugin(db_plugin, "token")
-        assert isinstance(plugin, RunnablePlugin)
+        assert isinstance(plugin, EnabledPlugin)
         assert plugin.info() == expected
 
     def test_load_plugin_enabled_in_another_instance(self):
@@ -349,7 +349,7 @@ class TestPluginLifecycle(object):
             "active": False,
             "remote_url": self.get_test_plugin_path('plugin1'),
         }
-        assert isinstance(plugin, RunnablePlugin)
+        assert isinstance(plugin, EnabledPlugin)
         assert plugin.info() == expected
 
     def test_load_plugin_disabled(self):

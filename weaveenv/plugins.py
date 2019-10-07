@@ -227,7 +227,7 @@ class InstalledPlugin(BasePlugin):
         return str(self.remote_plugin)
 
 
-class RunnablePlugin(InstalledPlugin):
+class EnabledPlugin(InstalledPlugin):
     def __init__(self, src, venv_manager, name, description, auth_token,
                  installed_plugin):
         super().__init__(src, venv_manager, name, description,
@@ -259,18 +259,18 @@ class RunnablePlugin(InstalledPlugin):
         return res
 
 
-class RunningPlugin(RunnablePlugin):
+class RunningPlugin(EnabledPlugin):
     def __init__(self, src, venv_manager, name, description, service,
-                 runnable_plugin):
+                 enabled_plugin):
         super().__init__(src, venv_manager, name, description,
                          runnable_plugin.auth_token,
                          runnable_plugin.installed_plugin)
-        self.runnable_plugin = runnable_plugin
+        self.enabled_plugin = enabled_plugin
         self.service = service
 
     def stop(self):
         stop_plugin(self.service)
-        return self.runnable_plugin
+        return self.enabled_plugin
 
     def info(self):
         res = super(RunningPlugin, self).info()
@@ -324,11 +324,11 @@ class PluginManager(object):
             raise ValueError("Token passed in not consistent with Plugin.")
 
         if db_plugin.enabled:
-            if isinstance(plugin, RunnablePlugin):
+            if isinstance(plugin, EnabledPlugin):
                 # This apparently has already been loaded.
                 return plugin
 
-            plugin = RunnablePlugin(path, venv, db_plugin.name,
+            plugin = EnabledPlugin(path, venv, db_plugin.name,
                                     db_plugin.description, token.strip(),
                                     plugin)
             self.plugins[plugin.plugin_id()] = plugin
@@ -356,7 +356,7 @@ class PluginManager(object):
         if isinstance(plugin, RunningPlugin):
             return plugin
 
-        if not isinstance(plugin, RunnablePlugin):
+        if not isinstance(plugin, EnabledPlugin):
             if isinstance(plugin, InstalledPlugin):
                 raise PluginLoadError("Plugin is not enabled: " + plugin_url)
             else:
@@ -404,7 +404,7 @@ class PluginManager(object):
         if isinstance(installed_plugin, RunningPlugin):
             raise PluginLoadError("Must stop the plugin first.")
 
-        if isinstance(installed_plugin, RunnablePlugin):
+        if isinstance(installed_plugin, EnabledPlugin):
             raise PluginLoadError("Must disable the plugin first.")
 
         if not isinstance(installed_plugin, InstalledPlugin):
