@@ -105,8 +105,9 @@ class VirtualEnvManager(object):
         if requirements_file:
             args = [os.path.join(self.venv_home, 'bin/python'), '-m', 'pip',
                     'install', '-r', requirements_file]
+            dirname = os.path.dirname(requirements_file)
             try:
-                subprocess.check_call(args)
+                subprocess.check_call(args, cwd=dirname)
             except subprocess.CalledProcessError:
                 logger.exception("Unable to install requirements for %s.",
                                  self.venv_home)
