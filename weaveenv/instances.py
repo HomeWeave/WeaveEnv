@@ -35,6 +35,9 @@ class PluginRegistrationHelper(object):
         return self.client["register_plugin"](db_plugin.name, db_plugin.app_url,
                                               _block=True)
 
+    def unregister_plugin(self, plugin_url):
+        return self.client["unregister_plugin"](plugin_url, _block=True)
+
 
 class PluginManagerRPCWrapper(object):
     def __init__(self, plugin_manager, registration_helper, service,
@@ -114,6 +117,7 @@ class PluginManagerRPCWrapper(object):
         return self.plugin_manager.activate(plugin_url, token).info()
 
     def deactivate(self, plugin_url):
+        self.registration_helper.unregister_plugin(plugin_url)
         return self.plugin_manager.deactivate(plugin_url).info()
 
     def get_plugin(self, plugin_url):
