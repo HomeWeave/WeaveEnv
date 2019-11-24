@@ -17,54 +17,33 @@ from .plugins import url_to_plugin_id
 MESSAGING_PLUGIN_URL = "https://github.com/HomeWeave/WeaveServer.git"
 
 
-class PluginRegistrationHelper(object):
-    def __init__(self, service):
-        self.service = service
-        self.client = None
-
-    def start(self):
-        rpc_info = find_rpc(self.service, MESSAGING_PLUGIN_URL, "app_manager")
-        self.client = RPCClient(self.service.get_connection(), rpc_info,
-                                self.service.get_auth_token())
-        self.client.start()
-
-    def stop(self):
-        self.client.stop()
-
-    def register_plugin(self, db_plugin):
-        return self.client["register_plugin"](db_plugin.name, db_plugin.app_url,
-                                              _block=True)
-
-    def unregister_plugin(self, plugin_url):
-        return self.client["unregister_plugin"](plugin_url, _block=True)
-
-
 class PluginManagerRPCWrapper(object):
-    def __init__(self, plugin_manager, registration_helper, service,
-                 instance_data):
+    def __init__(self, plugin_manager: PluginManager):
         self.plugin_manager = plugin_manager
-        self.registration_helper = registration_helper
-        self.instance_data = instance_data
         self.rpc_server = RPCServer("PluginManager", "WeaveInstance Manager", [
-            ServerAPI("list_plugins", "List plugins.", [], self.list_plugins),
+            ServerAPI("list_plugins", "List plugins.", [],
+                      self.plugin_manager.list_plugins),
             ServerAPI("activate_plugin", "Activate a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to activate", str),
-            ], self.activate),
+            ], self.plugin_manager.activate),
             ServerAPI("deactivate_plugin", "Deactivate a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to deactivate", str),
-            ], self.deactivate),
+            ], self.plugin_manager.deactivate),
             ServerAPI("enable_plugin", "Enable a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to deactivate", str),
-            ], self.enable_plugin),
+            ], self.plugin_manager.enable_plugin),
             ServerAPI("disable_plugin", "Disable a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to deactivate", str),
-            ], self.disable_plugin),
+            ], self.plugin_manager.disable_plugin),
             ServerAPI("install_plugin", "Install a plugin", [
                 ArgParameter("plugin_url", "URL ending with .git.", str),
-            ], self.install),
+            ], self.plugin_manager.install),
             ServerAPI("uninstall_plugin", "Uninstall a plugin", [
                 ArgParameter("plugin_url", "Plugin URL to uninstall", str),
-            ], self.uninstall),
+            ], self.plugin_manager.uninstall),
+            ServerAPI("plugin_info", "Get Plugin Info", [
+                ArgParameter("plugin_url", "Get plugin info", str),
+            ], self.plugin_manager.info),
         ], service)
 
     def start(self):
@@ -72,60 +51,6 @@ class PluginManagerRPCWrapper(object):
 
     def stop(self):
         self.rpc_server.stop()
-
-    def list_plugins(self):
-        return [x.info() for x in self.plugin_manager.list()]
-
-    def enable_plugin(self, plugin_url):
-        db_plugin = self.get_plugin(plugin_url)
-        db_plugin.enabled = True
-        db_plugin.save()
-
-        return self.plugin_manager.load_plugin(db_plugin).info()
-
-    def disable_plugin(self, plugin_url):
-        db_plugin = self.get_plugin(plugin_url)
-        db_plugin.enabled = False
-        db_plugin.save()
-
-        return self.plugin_manager.load_plugin(db_plugin).info()
-
-    def install(self, plugin_url):
-        installed_plugin = self.plugin_manager.install(plugin_url)
-
-        params = {
-            "app_url": plugin_url,
-            "name": installed_plugin.name,
-            "machine": self.instance_data
-        }
-        if installed_plugin.description:
-            params["description"] = installed_plugin.description
-
-        plugin_data = PluginData(**params)
-        plugin_data.save(force_insert=True)
-        return installed_plugin.info()
-
-    def uninstall(self, plugin_url):
-        db_plugin = self.get_plugin(plugin_url)
-        plugin = self.plugin_manager.uninstall(plugin_url)
-        db_plugin.delete_instance()
-        return plugin.info()
-
-    def activate(self, plugin_url):
-        db_plugin = self.get_plugin(plugin_url)
-        token = self.registration_helper.register_plugin(db_plugin)
-        return self.plugin_manager.activate(plugin_url, token).info()
-
-    def deactivate(self, plugin_url):
-        self.registration_helper.unregister_plugin(plugin_url)
-        return self.plugin_manager.deactivate(plugin_url).info()
-
-    def get_plugin(self, plugin_url):
-        try:
-            return PluginData.get(PluginData.app_url == plugin_url,
-                                  PluginData.machine == self.instance_data)
-        except DoesNotExist:
-            raise ObjectNotFound(plugin_url)
 
 
 class BaseWeaveEnvInstance(object):
@@ -153,8 +78,6 @@ class LocalWeaveInstance(BaseWeaveEnvInstance):
         self.instance_data = instance_data
         self.plugin_manager = plugin_manager
         self.stopped = Event()
-        self.rpc_wrapper = None
-        self.registration_helper = None
 
     def start(self):
         self.plugin_manager.start()
