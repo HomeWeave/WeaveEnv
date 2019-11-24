@@ -17,6 +17,7 @@ setup(
         'peewee',
         'virtualenv',
         'github3.py',
+        'dataclasses',
     ],
     entry_points={
         'console_scripts': [
