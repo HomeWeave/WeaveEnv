@@ -4,16 +4,20 @@ import shutil
 import subprocess
 import textwrap
 from glob import glob
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from weavelib.exceptions import PluginLoadError
 from weavelib.services import BasePlugin
+from weavelib.messaging import WeaveConnection
 
-from weaveenv.database import PluginData
+from weaveenv.database import PluginData, WeaveEnvInstanceData, PluginsDatabase
 from weaveenv.plugins import load_plugin_json, VirtualEnvManager, PluginManager
-from weaveenv.plugins import InstalledPlugin, RemotePlugin, EnabledPlugin
 from weaveenv.plugins import url_to_plugin_id
+
+from test_utils import MessagingService, DummyEnvService
 
 
 class TestPluginLoadJson(object):
@@ -120,7 +124,7 @@ class TestVirtualEnvManager(object):
             out.write(contents)
 
     def test_create_virtual_env(self):
-        venv = VirtualEnvManager(self.venv_dir)
+        venv = VirtualEnvManager(Path(self.venv_dir))
 
         assert venv.install()
         assert venv.install()
@@ -128,16 +132,18 @@ class TestVirtualEnvManager(object):
     def test_create_virtual_env_with_bad_requirements(self):
         self.write_content("requirements.txt", "skdjdlss_slkdjs")
 
-        venv = VirtualEnvManager(self.venv_dir)
+        venv = VirtualEnvManager(Path(self.venv_dir))
 
-        assert not venv.install(os.path.join(self.tmp_dir, "requirements.txt"))
+        requirements_file = Path(self.tmp_dir) / "requirements.txt"
+        assert not venv.install(requirements_file)
 
     def test_create_virtual_env_with_requirements(self):
         self.write_content("requirements.txt", "bottle")
 
-        venv = VirtualEnvManager(self.venv_dir)
+        venv = VirtualEnvManager(Path(self.venv_dir))
 
-        assert venv.install(os.path.join(self.tmp_dir, "requirements.txt"))
+        requirements_file = Path(self.tmp_dir) / "requirements.txt"
+        assert venv.install(requirements_file)
 
         python = os.path.join(self.venv_dir, "bin/python")
         command = [python, "-c", "import bottle"]
@@ -150,15 +156,12 @@ class TestVirtualEnvManager(object):
         assert not venv.is_installed()
 
 
-class FileSystemPlugin(RemotePlugin):
-    def install(self, plugin_base_dir, venv):
-        target = os.path.join(plugin_base_dir, self.plugin_id())
-        shutil.copytree(self.remote_url, target)
-        return InstalledPlugin(target, venv, self.name, self.description, self)
-
-
+@patch('git.Repo', clone_from=shutil.copytree)
+@patch.object(BasePlugin, 'service_start', return_value=None)
+@patch.object(BasePlugin, 'service_stop', return_value=None)
+@patch.object(BasePlugin, 'wait_for_start', return_value=True)
 class TestPluginLifecycle(object):
-    def get_test_plugin_id(self, plugin_dir):
+    def get_test_id(self, plugin_dir):
         return url_to_plugin_id(self.get_test_plugin_path(plugin_dir))
 
     def get_test_plugin_path(self, plugin_dir):
@@ -167,29 +170,51 @@ class TestPluginLifecycle(object):
 
     def get_test_plugin(self, dir_name):
         path = self.get_test_plugin_path(dir_name)
-        return FileSystemPlugin(path, dir_name, "description")
+        return path, dir_name, "description"
 
     def list_plugins(self):
         pattern = os.path.join(os.path.dirname(__file__), "testdata/*/")
         plugin_dirs = [os.path.basename(x.rstrip('/')) for x in glob(pattern)]
         return [self.get_test_plugin(x) for x in plugin_dirs]
 
+    @classmethod
+    def setup_class(cls):
+        cls.messaging_service = MessagingService()
+        cls.messaging_service.service_start()
+        cls.messaging_service.wait_for_start(15)
+
+        cls.conn = WeaveConnection.local()
+        cls.conn.connect()
+
+        cls.fake_service = DummyEnvService(cls.messaging_service.test_token,
+                                          cls.conn)
+
+    @classmethod
+    def teardown_class(cls):
+        cls.conn.close()
+        cls.messaging_service.service_stop()
+
     @pytest.fixture(autouse=True)
     def setup(self, tmpdir):
-        self.base_dir = tmpdir.strpath
+        self.base_dir = Path(tmpdir.strpath)
+        self.db = PluginsDatabase(":memory:")
+        self.db.start()
+        self.instance = WeaveEnvInstanceData(machine_id="x", app_token="y")
+        self.instance.save(force_insert=True)
 
     def teardown(self):
         shutil.rmtree(self.base_dir)
 
-    def test_plugin_listing(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+    def test_plugin_listing(self, *args):
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
         pm.start()
 
         expected = [
             {
                 "name": "plugin1",
                 "description": "description",
-                "plugin_id": self.get_test_plugin_id('plugin1'),
+                "id": self.get_test_id('plugin1'),
                 "enabled": False,
                 "installed": False,
                 "active": False,
@@ -197,242 +222,184 @@ class TestPluginLifecycle(object):
             }
         ]
 
-        assert [x.info() for x in pm.list()] == expected
+        assert pm.list() == expected
 
-    def test_plugin_install(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+    def test_plugin_install(self, *args):
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
         pm.start()
-        plugin = pm.install(self.get_test_plugin_path('plugin1'))
+        res = pm.install(self.get_test_plugin_path('plugin1'))
 
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "id": self.get_test_id('plugin1'),
             "enabled": False,
             "installed": True,
             "active": False,
             "remote_url": self.get_test_plugin_path('plugin1'),
         }
 
-        assert isinstance(plugin, InstalledPlugin)
-        assert plugin.info() == expected
+        assert res == expected
 
-    def test_plugin_double_install(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+    def test_plugin_double_install(self, *args):
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
         pm.start()
-        plugin = pm.install(self.get_test_plugin_path('plugin1'))
+        res1 = pm.install(self.get_test_plugin_path('plugin1'))
 
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "id": self.get_test_id('plugin1'),
             "enabled": False,
             "installed": True,
             "active": False,
             "remote_url": self.get_test_plugin_path('plugin1'),
         }
 
-        assert isinstance(plugin, InstalledPlugin)
+        res2 = pm.install(self.get_test_plugin_path('plugin1'))
+        assert res1 == res2 == expected
 
-        plugin_new = pm.install(self.get_test_plugin_path('plugin1'))
-        assert plugin_new is plugin
-
-    def test_plugin_uninstall(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+    def test_plugin_uninstall(self, *args):
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
         pm.start()
-        plugin = pm.install(self.get_test_plugin_path('plugin1'))
-        plugin = pm.uninstall(self.get_test_plugin_path('plugin1'))
+        res1 = pm.install(self.get_test_plugin_path('plugin1'))
+        res2 = pm.uninstall(self.get_test_plugin_path('plugin1'))
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "id": self.get_test_id('plugin1'),
             "enabled": False,
             "installed": False,
             "active": False,
             "remote_url": self.get_test_plugin_path('plugin1'),
         }
 
-        assert isinstance(plugin, RemotePlugin)
-        assert plugin.info() == expected
+        assert res2 == expected
 
-    def test_plugin_bad_uninstall(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+    def test_plugin_bad_uninstall(self, *args):
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
         pm.start()
-        with pytest.raises(PluginLoadError, match="Plugin not installed."):
-            pm.uninstall(self.get_test_plugin_path('plugin1'))
+        res = pm.uninstall(self.get_test_plugin_path('plugin1'))
+        assert not res["installed"]
 
-    def test_uninstall_enabled_plugin(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+    def test_uninstall_enabled_plugin(self, *args):
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
         pm.start()
         plugin_url = self.get_test_plugin_path('plugin1')
-        plugin = pm.install(plugin_url)
-
-        db_plugin = PluginData(name="plugin1", description="description",
-                               app_url=plugin_url, enabled=True)
-        plugin = pm.load_plugin(db_plugin)
+        pm.install(plugin_url)
+        pm.enable(plugin_url)
 
         with pytest.raises(PluginLoadError, match="Must disable the plugin .*"):
             pm.uninstall(self.get_test_plugin_path('plugin1'))
 
+        pm.stop()
 
-    def test_load_plugin_not_enabled(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+    def test_load_plugin_not_enabled(self, *args):
+        plugin_url = self.get_test_plugin_path('plugin1')
+        db_plugin = PluginData(name="plugin1", description="x",
+                               app_url=plugin_url, machine=self.instance)
+        db_plugin.save(force_insert=True)
+
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
         pm.start()
 
-        plugin_url = self.get_test_plugin_path('plugin1')
-        plugin = pm.install(plugin_url)
-
-        db_plugin = PluginData(name="plugin1", description="description",
-                               app_url=plugin_url)
-        plugin = pm.load_plugin(db_plugin)
-
-        assert isinstance(plugin, InstalledPlugin)
-        assert plugin.info() == {
+        assert pm.plugin_state(plugin_url) == {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "id": self.get_test_id('plugin1'),
             "enabled": False,
-            "installed": True,
+            "installed": False,
             "active": False,
             "remote_url": self.get_test_plugin_path('plugin1'),
         }
 
-    def test_load_plugin_enabled(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
-        pm.start()
-
+    def test_load_plugin_enabled(self, *args):
         plugin_url = self.get_test_plugin_path('plugin1')
-        plugin = pm.install(plugin_url)
+        plugin_id = self.get_test_id('plugin1')
+        db_plugin = PluginData(name="plugin1", description="x", enabled=True,
+                               app_url=plugin_url, machine=self.instance)
+        install_dir = self.base_dir / "plugins" / plugin_id
+        venv_dir = self.base_dir / "venv" / plugin_id
 
-        db_plugin = PluginData(name="plugin1", description="description",
-                               app_url=plugin_url, enabled=True)
-        plugin = pm.load_plugin(db_plugin)
+        db_plugin.save(force_insert=True)
+        shutil.copytree(plugin_url, str(install_dir))
+
+        VirtualEnvManager(venv_dir).install(install_dir / "requirements.txt")
+
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
+        pm.start()
 
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "id": plugin_id,
             "enabled": True,
             "installed": True,
-            "active": False,
-            "remote_url": self.get_test_plugin_path('plugin1'),
+            "active": True,
+            "remote_url": plugin_url,
         }
-        assert isinstance(plugin, EnabledPlugin)
-        assert plugin.info() == expected
+        assert pm.plugin_state(plugin_url) == expected
 
-        # Try load_plugin another time.
-        plugin = pm.load_plugin(db_plugin)
-        assert isinstance(plugin, EnabledPlugin)
-        assert plugin.info() == expected
+        pm.stop()
 
-    def test_load_plugin_enabled_in_another_instance(self):
-        pm1 = PluginManager(self.base_dir, lister_fn=self.list_plugins)
-        pm1.start()
+    def test_activate(self, *args):
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
+        pm.start()
 
         plugin_url = self.get_test_plugin_path('plugin1')
-        plugin = pm1.install(plugin_url)
-
-        db_plugin = PluginData(name="plugin1", description="description",
-                               app_url=plugin_url, enabled=True)
-        plugin = pm1.load_plugin(db_plugin)
-
-        pm2 = PluginManager(self.base_dir, lister_fn=self.list_plugins)
-        pm2.start()
-        plugin = pm2.load_plugin(db_plugin)
+        pm.install(plugin_url)
+        pm.enable(plugin_url)
+        result = pm.activate(plugin_url)
 
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": self.get_test_plugin_id('plugin1'),
-            "enabled": True,
-            "installed": True,
-            "active": False,
-            "remote_url": self.get_test_plugin_path('plugin1'),
-        }
-        assert isinstance(plugin, EnabledPlugin)
-        assert plugin.info() == expected
-
-    def test_load_plugin_disabled(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
-        pm.start()
-
-        plugin_url = self.get_test_plugin_path('plugin1')
-        plugin = pm.install(plugin_url)
-
-        db_plugin = PluginData(name="plugin1", description="description",
-                               app_url=plugin_url, enabled=True)
-        pm.load_plugin(db_plugin)
-
-        db_plugin.enabled = False
-        plugin = pm.load_plugin(db_plugin)
-
-        assert plugin.info() == {
-            "name": "plugin1",
-            "description": "description",
-            "plugin_id": self.get_test_plugin_id('plugin1'),
-            "enabled": False,
-            "installed": True,
-            "active": False,
-            "remote_url": self.get_test_plugin_path('plugin1'),
-        }
-
-    def test_activate(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
-        pm.start()
-
-        plugin_url = self.get_test_plugin_path('plugin1')
-        plugin = pm.install(plugin_url)
-
-        db_plugin = PluginData(name="plugin1", description="description",
-                               app_url=plugin_url, enabled=True)
-        pm.load_plugin(db_plugin)
-        plugin = pm.activate(plugin_url, "token")
-
-        expected = {
-            "name": "plugin1",
-            "description": "description",
-            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "id": self.get_test_id('plugin1'),
             "enabled": True,
             "installed": True,
             "active": True,
             "remote_url": self.get_test_plugin_path('plugin1'),
         }
-        assert plugin.info() == expected
+        assert result == expected
 
-        assert pm.activate(plugin_url, "token").info() == expected
-
-        plugin = pm.deactivate(plugin_url)
+        result = pm.deactivate(plugin_url)
         expected = {
             "name": "plugin1",
             "description": "description",
-            "plugin_id": self.get_test_plugin_id('plugin1'),
+            "id": self.get_test_id('plugin1'),
             "enabled": True,
             "installed": True,
             "active": False,
             "remote_url": self.get_test_plugin_path('plugin1'),
         }
-        assert plugin.info() == expected
+        assert result == expected
 
         pm.stop()
 
-    def test_activate_disabled_plugin(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+    def test_activate_disabled_plugin(self, *args):
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
         pm.start()
 
         plugin_url = self.get_test_plugin_path('plugin1')
         plugin = pm.install(plugin_url)
 
-        db_plugin = PluginData(name="plugin1", description="description",
-                               app_url=plugin_url)
-        pm.load_plugin(db_plugin)
-
         with pytest.raises(PluginLoadError, match=".*not enabled.*"):
-            pm.activate(plugin_url, "token")
+            pm.activate(plugin_url)
 
-    def test_activate_remote_plugin(self):
-        pm = PluginManager(self.base_dir, lister_fn=self.list_plugins)
+    def test_activate_remote_plugin(self, *args):
+        pm = PluginManager(self.base_dir, self.instance, self.fake_service,
+                           lister_fn=self.list_plugins)
         pm.start()
 
         plugin_url = self.get_test_plugin_path('plugin1')
         with pytest.raises(PluginLoadError, match=".*not installed.*"):
-            pm.activate(plugin_url, "token")
+            pm.activate(plugin_url)

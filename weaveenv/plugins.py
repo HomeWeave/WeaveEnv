@@ -6,17 +6,26 @@ import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Dict, Optional
 from uuid import uuid4
 
-import git
-import virtualenv
-from github3 import GitHub
+import git  # type: ignore
+import virtualenv  # type: ignore
+from github3 import GitHub  # type: ignore
+from peewee import PeeweeException, IntegrityError, DoesNotExist
 
 from weavelib.exceptions import WeaveException, PluginLoadError, ObjectNotFound
-from weavelib.services import BasePlugin as BaseServicePlugin
+from weavelib.exceptions import InternalError
+from weavelib.rpc import RPCClient, find_rpc
+from weavelib.services import MessagingEnabled, BasePlugin as BaseServicePlugin
+
+from weaveenv.database import WeaveEnvInstanceData, PluginData
 
 
 logger = logging.getLogger(__name__)
+MESSAGING_PLUGIN_URL = "https://github.com/HomeWeave/WeaveServer.git"
 
 
 def execute_file(path):
@@ -81,341 +90,469 @@ def load_plugin_json(install_path, load_service=True):
 
 
 def list_github_plugins(organization='HomeWeave'):
-    for repo in GitHub().organization(organization).repositories():
+    for repo in Github().organization(organization).repositories():
         contents = repo.directory_contents("/", return_as=dict)
 
         if "plugin.json" in contents:
-            yield GitPlugin(repo.clone_url, repo.name, repo.description)
+            yield (repo.clone_url, repo.name, repo.description)
 
 
-def url_to_plugin_id(url):
+def url_to_plugin_id(url: str) -> str:
     return hashlib.md5(url.encode('utf-8')).hexdigest()
 
 
 class VirtualEnvManager(object):
-    def __init__(self, path):
+    def __init__(self, path: Path):
         self.venv_home = path
 
-    def install(self, requirements_file=None):
-        if os.path.exists(self.venv_home):
-            return True
+    def install(self, requirements_file: Path = None):
+        if not self.is_installed():
+            virtualenv.create_environment(str(self.venv_home), clear=True)
 
-        virtualenv.create_environment(self.venv_home, clear=True)
-
-        if requirements_file:
-            args = [os.path.join(self.venv_home, 'bin/python'), '-m', 'pip',
-                    'install', '-r', requirements_file]
-            dirname = os.path.dirname(requirements_file)
+        if requirements_file and requirements_file.is_file():
+            args = [str(self.venv_home / 'bin/python'), '-m', 'pip',
+                    'install', '-r', str(requirements_file)]
             try:
-                subprocess.check_call(args, cwd=dirname)
+                subprocess.check_call(args, cwd=str(requirements_file.parent))
             except subprocess.CalledProcessError:
                 logger.exception("Unable to install requirements for %s.",
-                                 self.venv_home)
+                                 str(self.venv_home))
                 return False
         return True
 
     def is_installed(self):
-        return os.path.exists(self.venv_home)
+        return self.venv_home.is_dir()
 
     def activate(self):
-        script = os.path.join(self.venv_home, "bin", "activate_this.py")
-        execute_file(script)
+        execute_file(str(self.venv_home / "bin" / "activate_this.py"))
 
     def clean(self):
-        shutil.rmtree(self.venv_home)
+        try:
+            shutil.rmtree(str(self.venv_home))
+        except FileNotFoundError:
+            # Ignore.
+            pass
 
+@dataclass
+class PluginState:
+    # Metadata
+    name: str
+    description: str
+    remote_url: str
 
-class BasePlugin(object):
-    def __init__(self, src, name, description):
-        self.src = src
-        self.name = name
-        self.description = description
+    # States
+    installed_dir: Path = None
+    db_plugin: PluginData = None
+    active: bool = False                   # Is the plugin running?
+    token: Optional[str] = None            # Messaging token.
 
+    # Execution vars.
+    venv: VirtualEnvManager = None
+    service: BaseServicePlugin = None
+    start_timeout: int = 30                # Timeout after which to kill start.
+
+    app_manager_client: RPCClient = None
+
+    @property
     def plugin_id(self):
-        return url_to_plugin_id(self.src)
+        return url_to_plugin_id(self.remote_url)
 
-    def install(self, dest_dir, venv):
-        raise NotImplementedError
+    @property
+    def enabled(self) -> bool:
+        return bool(self.db_plugin and self.db_plugin.enabled)
 
-    def is_installed(self):
-        return False
-
-    def is_enabled(self):
-        raise NotImplementedError
-
-    def get_file(self, rel_path):
-        return os.path.join(self.src, rel_path)
-
-    def __hash__(self):
-        return hash(self.plugin_id())
-
-    def __eq__(self, other):
-        return (isinstance(other, BasePlugin) and
-                self.plugin_id() == other.plugin_id())
-
-    def __str__(self):
-        return "<Plugin: {} from {}>".format(self.name, self.src)
+    @property
+    def installed(self) -> bool:
+        return self.installed_dir.is_dir() and self.venv.is_installed()
 
     def info(self):
         return {
-            "plugin_id": self.plugin_id(),
             "name": self.name,
             "description": self.description,
-            "enabled": False,
-            "installed": False,
-            "active": False
+            "remote_url": self.remote_url,
+            "id": self.plugin_id,
+            "active": self.active,
+            "enabled": self.enabled,
+            "installed": self.installed,
         }
 
 
-class RemotePlugin(BasePlugin):
-    def __init__(self, src, name, description):
-        super().__init__(src, name, description)
-        self.remote_url = src
+class StateHook:
+    def load(self, plugin_state: PluginState) -> None:
+        pass
 
-    def info(self):
-        res = super().info()
-        res['remote_url'] = self.remote_url
-        return res
+    def before_enable(self, plugin_state: PluginState) -> None:
+        pass
 
+    def on_enable(self, plugin_state: PluginState) -> None:
+        pass
 
-class GitPlugin(RemotePlugin):
-    def install(self, plugin_base_dir, venv):
-        cloned_location = os.path.join(plugin_base_dir, self.plugin_id())
+    def after_enable(self, plugin_state: PluginState) -> None:
+        pass
 
-        # Clear the directory if already present.
-        if os.path.isdir(cloned_location):
-            shutil.rmtree(cloned_location)
+    def before_disable(self, plugin_state: PluginState) -> None:
+        pass
 
-        git.Repo.clone_from(self.remote_url, cloned_location)
-        return InstalledPlugin(cloned_location, venv, self.name,
-                               self.description, self)
+    def on_disable(self, plugin_state: PluginState) -> None:
+        pass
 
+    def after_disable(self, plugin_state: PluginState) -> None:
+        pass
 
-class InstalledPlugin(BasePlugin):
-    def __init__(self, src, venv_manager, name, description, remote_plugin):
-        super().__init__(src, name, description)
-        self.venv_manager = venv_manager
-        self.remote_plugin = remote_plugin
+    def before_install(self, plugin_state: PluginState) -> None:
+        pass
 
-    def plugin_id(self):
-        return os.path.basename(self.src)
+    def on_install(self, plugin_state: PluginState) -> None:
+        pass
 
-    def install(self, plugin_base_dir, venv):
-        return self
+    def after_install(self, plugin_state: PluginState) -> None:
+        pass
 
-    def is_installed(self):
-        return os.path.isdir(self.src) and self.venv_manager.is_installed()
+    def before_uninstall(self, plugin_state: PluginState) -> None:
+        pass
 
-    def clean(self):
-        if os.path.isdir(self.src):
-            shutil.rmtree(self.src)
-        self.venv_manager.clean()
-        return self.remote_plugin
+    def on_uninstall(self, plugin_state: PluginState) -> None:
+        pass
 
-    def get_plugin_dir(self):
-        return self.src
+    def after_uninstall(self, plugin_state: PluginState) -> None:
+        pass
 
-    def get_venv_dir(self):
-        return self.venv_manager.venv_home
+    def before_activate(self, plugin_state: PluginState) -> None:
+        pass
 
-    def info(self):
-        res = self.remote_plugin.info()
-        res.update(super().info())
-        res['installed'] = self.is_installed()
-        return res
+    def on_activate(self, plugin_state: PluginState) -> None:
+        pass
 
-    def __str__(self):
-        return str(self.remote_plugin)
+    def after_activate(self, plugin_state: PluginState) -> None:
+        pass
 
+    def before_deactivate(self, plugin_state: PluginState) -> None:
+        pass
 
-class EnabledPlugin(InstalledPlugin):
-    def __init__(self, src, venv_manager, name, description, installed_plugin):
-        super().__init__(src, venv_manager, name, description,
-                         installed_plugin.remote_plugin)
-        self.installed_plugin = installed_plugin
+    def on_deactivate(self, plugin_state: PluginState) -> None:
+        pass
 
-    def run(self, auth_token):
-        plugin_info = load_plugin_json(self.src, load_service=False)
+    def after_deactivate(self, plugin_state: PluginState) -> None:
+        pass
 
-        start_timeout = plugin_info["start_timeout"]
-
-        service = BaseServicePlugin(auth_token=auth_token,
-                                    venv_dir=self.venv_manager.venv_home,
-                                    plugin_dir=self.src,
-                                    started_token=str(uuid4()))
-
-        if not run_plugin(service, timeout=start_timeout):
-            raise WeaveException("Unable to start plugin.")
-
-        logger.info("Started plugin: %s", plugin_info["service_name"])
-
-        return RunningPlugin(self.src, self.venv_manager, self.name,
-                             self.description, service, self)
-
-    def info(self):
-        res = super().info()
-        res['enabled'] = True
-        return res
+    def stop(self) -> None:
+        pass
 
 
-class RunningPlugin(EnabledPlugin):
-    def __init__(self, src, venv_manager, name, description, service,
-                 enabled_plugin):
-        super().__init__(src, venv_manager, name, description,
-                         enabled_plugin.installed_plugin)
-        self.enabled_plugin = enabled_plugin
+class MessagingRegistrationHook(StateHook):
+    def __init__(self, service: MessagingEnabled):
         self.service = service
+        self.client = None
+
+    def load(self, plugin_state: PluginState):
+        rpc_info = find_rpc(self.service, MESSAGING_PLUGIN_URL, "app_manager")
+        self.client = RPCClient(self.service.get_connection(), rpc_info,
+                                self.service.get_auth_token())
+        self.client.start()
+
+        plugin_state.app_manager_client = self.client
+
+        if plugin_state.enabled:
+            self.on_activate(plugin_state)
 
     def stop(self):
-        stop_plugin(self.service)
-        return self.enabled_plugin
+        self.client.stop()
 
-    def info(self):
-        res = super(RunningPlugin, self).info()
-        res['active'] = True
-        return res
+    def on_activate(self, state: PluginState):
+        state.token = self.client["register_plugin"](state.name,
+                                                     state.remote_url,
+                                                     _block=True)
+
+    def on_deactivate(self, plugin_state: PluginState):
+        self.client["unregister_plugin"](plugin_state.remote_url, _block=True)
+        plugin_state.token = None
+
+
+class VirtualEnvHook(StateHook):
+    def __init__(self, base_dir: Path):
+        self.base_path = base_dir / "venv"
+
+    def load(self, plugin_state: PluginState):
+        venv_dir = self.base_path / plugin_state.plugin_id
+        plugin_state.venv = VirtualEnvManager(venv_dir)
+
+    def on_install(self, plugin_state: PluginState):
+        requirements_file = plugin_state.installed_dir / "requirements.txt"
+        plugin_state.venv.install(requirements_file=requirements_file)
+
+    def after_install(self, plugin_state: PluginState):
+        if not plugin_state.venv.is_installed():
+            raise InternalError("VirtualEnv directory not found.")
+
+    def on_uninstall(self, plugin_state: PluginState):
+        plugin_state.venv.clean()
+
+    def before_enable(self, plugin_state: PluginState):
+        if not plugin_state.venv.is_installed():
+            raise PluginLoadError("VirtualEnv not installed.")
+
+
+class PluginFilesStateHook(StateHook):
+    def __init__(self, base_dir: Path):
+        self.base_path = base_dir / "plugins"
+
+    def load(self, plugin_state: PluginState):
+        plugin_state.installed_dir = self.base_path / plugin_state.plugin_id
+
+    def on_install(self, plugin_state: PluginState):
+        # Clear the directory if already present.
+        if plugin_state.installed_dir.is_dir():
+            shutil.rmtree(str(plugin_state.installed_dir))
+
+        git.Repo.clone_from(plugin_state.remote_url,
+                            str(plugin_state.installed_dir))
+
+    def after_install(self, plugin_state: PluginState):
+        if not plugin_state.installed_dir.is_dir():
+            raise InternalError("Unable to install plugin.")
+
+    def on_uninstall(self, plugin_state: PluginState):
+        if plugin_state.installed_dir.is_dir():
+            shutil.rmtree(str(plugin_state.installed_dir))
+
+    def before_enable(self, plugin_state: PluginState):
+        if not plugin_state.installed_dir.is_dir():
+            raise PluginLoadError("Plugin not installed.")
+
+
+class PluginJsonHook(StateHook):
+    def on_activate(self, plugin_state: PluginState):
+        res = load_plugin_json(plugin_state.installed_dir, load_service=False)
+        plugin_state.start_timeout = res["start_timeout"]
+
+
+class PluginDBHook(StateHook):
+    def __init__(self, instance: WeaveEnvInstanceData):
+        self.instance = instance
+
+    def load(self, plugin_state: PluginState):
+        try:
+            p = PluginData.get(PluginData.machine == self.instance,
+                               PluginData.app_url == plugin_state.remote_url)
+        except DoesNotExist:
+            return
+
+        plugin_state.db_plugin = p
+
+    def on_install(self, plugin_state: PluginState):
+        params = {
+            "app_url": plugin_state.remote_url,
+            "name": plugin_state.name,
+            "description": plugin_state.description,
+            "machine": self.instance
+        }
+        plugin_state.db_plugin = PluginData(**params)
+        try:
+            plugin_state.db_plugin.save(force_insert=True)
+        except IntegrityError:
+            pass
+
+    def on_uninstall(self, plugin_state: PluginState):
+        if not plugin_state.db_plugin:
+            return
+
+        try:
+            plugin_state.db_plugin.delete_instance()
+        except DoesNotExist:
+            # Silently ignore.
+            pass
+
+    def on_enable(self, plugin_state: PluginState):
+        plugin_state.db_plugin.enabled = True
+        plugin_state.db_plugin.save()
+
+    def on_disable(self, plugin_state: PluginState):
+        plugin_state.db_plugin.enabled = False
+        plugin_state.db_plugin.save()
+
+
+class PluginExecutionStateHook(StateHook):
+    def load(self, plugin_state: PluginState):
+        if not plugin_state.service:
+            if plugin_state.db_plugin and plugin_state.db_plugin.enabled:
+                self.before_activate(plugin_state)
+                self.on_activate(plugin_state)
+                self.after_activate(plugin_state)
+
+    def before_enable(self, plugin_state: PluginState):
+        if not plugin_state.installed:
+            raise PluginLoadError("Plugin is not installed.")
+
+    def before_activate(self, plugin_state: PluginState):
+        self.before_enable(plugin_state)
+        if not plugin_state.db_plugin.enabled:
+            raise PluginLoadError("Plugin is not enabled.")
+
+    def on_activate(self, plugin_state: PluginState):
+        if not plugin_state.token or not plugin_state.token.strip():
+            raise InternalError("Not registered with messaging server.")
+
+        service = BaseServicePlugin(auth_token=plugin_state.token,
+                                    venv_dir=plugin_state.venv.venv_home,
+                                    plugin_dir=str(plugin_state.installed_dir),
+                                    started_token=str(uuid4()))
+
+        if not run_plugin(service, plugin_state.start_timeout):
+            raise PluginLoadError("Unable to start the plugin.")
+
+        plugin_state.service = service
+
+    def after_activate(self, plugin_state: PluginState):
+        plugin_state.active = True
+
+    def on_deactivate(self, plugin_state: PluginState):
+        stop_plugin(plugin_state.service)
+        plugin_state.active = False
+
+    def before_disable(self, plugin_state: PluginState):
+        if plugin_state.active:
+            raise PluginLoadError("Plugin must be stopped first.")
+
+    def before_uninstall(self, plugin_state: PluginState):
+        self.before_disable(plugin_state)
+
+        if plugin_state.enabled:
+            raise PluginLoadError("Must disable the plugin first.")
 
 
 class PluginManager(object):
-    def __init__(self, base_path, lister_fn=list_github_plugins):
-        self.plugin_dir = os.path.join(base_path, "plugins")
-        self.venv_dir = os.path.join(base_path, "venv")
-        self.remote_plugins = {}
-        self.plugins = {}
+    def __init__(self, base_path: Path, instance_data: WeaveEnvInstanceData,
+                 service: MessagingEnabled, lister_fn=list_github_plugins):
+        self.plugin_states: Dict[str, PluginState] = {}
         self.lister_fn = lister_fn
+        self.instance_data = instance_data
+        self.base_path = base_path
 
-        os.makedirs(self.plugin_dir, exist_ok=True)
+        # Hooks
+        self.messaging_hook = MessagingRegistrationHook(service)
+        self.venv_hook = VirtualEnvHook(base_path)
+        self.plugin_fs_hook = PluginFilesStateHook(base_path)
+        self.plugin_json_hook = PluginJsonHook()
+        self.plugin_db_hook = PluginDBHook(instance_data)
+        self.plugin_exec_hook = PluginExecutionStateHook()
+
+        self.hooks = [
+            self.venv_hook,
+            self.plugin_fs_hook,
+            self.plugin_db_hook,
+            self.plugin_json_hook,
+            self.messaging_hook,
+            self.plugin_exec_hook,
+        ]
 
     def start(self):
-        self.remote_plugins = {x.plugin_id(): x for x in self.lister_fn()}
-        self.plugins = self.remote_plugins.copy()
+        plugins = [PluginState(name=x[1],  remote_url=x[0], description=x[2])
+                   for x in self.lister_fn()]
+        self.plugin_states = {x.plugin_id: x for x in plugins}
 
-    def start_plugins(self, plugin_tokens):
-        for db_plugin, token in plugin_tokens:
-            obj = self.load_plugin(db_plugin)
-            self.plugins[obj.plugin_id()] = obj
-
-            if isinstance(obj, EnabledPlugin):
-                logger.info("Activating: %s", str(obj))
-                self.activate(obj.installed_plugin.remote_plugin.remote_url,
-                              token)
-
-    def load_plugin(self, db_plugin):
-        plugin_id = url_to_plugin_id(db_plugin.app_url)
-        path = os.path.join(self.plugin_dir, plugin_id)
-        if not os.path.isdir(path):
-            raise PluginLoadError("Plugin directory not found.")
-
-        venv_path = os.path.join(self.venv_dir, plugin_id)
-        if not os.path.isdir(venv_path):
-            raise PluginLoadError("VirtualEnv directory not found.")
-
-        plugin = self.get_plugin_by_id(plugin_id)
-
-        venv = VirtualEnvManager(venv_path)
-        if not isinstance(plugin, InstalledPlugin):
-            plugin = InstalledPlugin(path, venv, db_plugin.name,
-                                     db_plugin.description, plugin)
-
-        if db_plugin.enabled:
-            if isinstance(plugin, EnabledPlugin):
-                # This apparently has already been loaded.
-                return plugin
-
-            plugin = EnabledPlugin(path, venv, db_plugin.name,
-                                    db_plugin.description, plugin)
-            self.plugins[plugin.plugin_id()] = plugin
-            return plugin
-        else:
-            if type(plugin) == InstalledPlugin:
-                return plugin
-
-            plugin = InstalledPlugin(path, venv, db_plugin.name,
-                                     db_plugin.description,
-                                     plugin.installed_plugin.remote_plugin)
-            self.plugins[plugin.plugin_id()] = plugin
-            return plugin
+        for plugin_state in self.plugin_states.values():
+            for hook in self.hooks:
+                hook.load(plugin_state)
 
     def stop(self):
-        for plugin in self.plugins.values():
-            if isinstance(plugin, RunningPlugin):
-                plugin.stop()
+        for plugin in self.plugin_states.values():
+            for hook in reversed(self.hooks):
+                hook.before_deactivate(plugin)
 
-    def activate(self, plugin_url, token):
+        for plugin in self.plugin_states.values():
+            for hook in reversed(self.hooks):
+                hook.after_deactivate(plugin)
+
+        for hook in self.hooks:
+            hook.stop()
+
+    def activate(self, plugin_url):
         plugin = self.get_plugin_by_url(plugin_url)
-        if isinstance(plugin, RunningPlugin):
-            return plugin
+        for hook in self.hooks:
+            hook.before_activate(plugin)
 
-        if not isinstance(plugin, EnabledPlugin):
-            if isinstance(plugin, InstalledPlugin):
-                raise PluginLoadError("Plugin is not enabled: " + plugin_url)
-            else:
-                raise PluginLoadError("Plugin is not installed: " + plugin_url)
+        for hook in self.hooks:
+            hook.on_activate(plugin)
 
-        if not token.strip():
-            raise PluginLoadError("Invalid token.")
+        for hook in self.hooks:
+            hook.after_activate(plugin)
 
-        plugin = plugin.run(token.strip())
-        self.plugins[plugin.plugin_id()] = plugin
-        return plugin
+        return plugin.info()
 
     def deactivate(self, plugin_url):
         plugin = self.get_plugin_by_url(plugin_url)
-        if not isinstance(plugin, RunningPlugin):
-            return plugin
+        for hook in reversed(self.hooks):
+            hook.before_deactivate(plugin)
 
-        plugin = plugin.stop()
-        self.plugins[plugin.plugin_id()] = plugin
-        return plugin
+        for hook in reversed(self.hooks):
+            hook.on_deactivate(plugin)
+
+        for hook in reversed(self.hooks):
+            hook.after_deactivate(plugin)
+
+        return plugin.info()
+
+    def enable(self, plugin_url):
+        plugin = self.get_plugin_by_url(plugin_url)
+        for hook in self.hooks:
+            hook.before_enable(plugin)
+
+        for hook in self.hooks:
+            hook.on_enable(plugin)
+
+        for hook in self.hooks:
+            hook.after_enable(plugin)
+
+        return plugin.info()
+
+    def disable(self, plugin_url):
+        plugin = self.get_plugin_by_url(plugin_url)
+        for hook in reversed(self.hooks):
+            hook.before_disable(plugin)
+
+        for hook in reversed(self.hooks):
+            hook.on_disable(plugin)
+
+        for hook in reversed(self.hooks):
+            hook.after_disable(plugin)
+
+        return plugin.info()
 
     def install(self, plugin_url):
-        installable_plugin = self.get_plugin_by_url(plugin_url)
-        venv = VirtualEnvManager(os.path.join(self.venv_dir,
-                                              installable_plugin.plugin_id()))
-        installed_plugin = None
-        try:
-            installed_plugin = installable_plugin.install(self.plugin_dir, venv)
+        plugin = self.get_plugin_by_url(plugin_url)
+        for hook in self.hooks:
+            hook.before_install(plugin)
 
-            # Configure a new VirtualEnv.
-            requirements_file = installed_plugin.get_file("requirements.txt")
-            if not os.path.isfile(requirements_file):
-                requirements_file = None
-            if not venv.install(requirements_file=requirements_file):
-                raise WeaveException("Unable to install virtualenv.")
+        for hook in self.hooks:
+            hook.on_install(plugin)
 
-            self.plugins[installable_plugin.plugin_id()] = installed_plugin
-            return installed_plugin
-        except Exception:
-            logger.exception("Installation of plugin failed. Rolling back.")
-            if installed_plugin:
-                self.uninstall(installed_plugin)
-            raise PluginLoadError("Installation failed.")
+        for hook in self.hooks:
+            hook.after_install(plugin)
+
+        return plugin.info()
 
     def uninstall(self, plugin_url):
-        installed_plugin = self.get_plugin_by_url(plugin_url)
+        plugin = self.get_plugin_by_url(plugin_url)
+        for hook in reversed(self.hooks):
+            hook.before_uninstall(plugin)
 
-        if isinstance(installed_plugin, RunningPlugin):
-            raise PluginLoadError("Must stop the plugin first.")
+        for hook in reversed(self.hooks):
+            hook.on_uninstall(plugin)
 
-        if isinstance(installed_plugin, EnabledPlugin):
-            raise PluginLoadError("Must disable the plugin first.")
+        for hook in reversed(self.hooks):
+            hook.after_uninstall(plugin)
 
-        if not isinstance(installed_plugin, InstalledPlugin):
-            raise PluginLoadError("Plugin not installed.")
-
-        remote_plugin = installed_plugin.clean()
-        self.plugins[installed_plugin.plugin_id()] = remote_plugin
-        return remote_plugin
+        return plugin.info()
 
     def list(self):
-        return list(self.plugins.values())
+        return [x.info() for x in self.plugin_states.values()]
+
+    def plugin_state(self, plugin_url):
+        return self.get_plugin_by_url(plugin_url).info()
 
     def get_plugin_by_url(self, plugin_url):
         plugin_id = url_to_plugin_id(plugin_url)
-        return self.get_plugin_by_id(plugin_id)
-
-    def get_plugin_by_id(self, plugin_id):
         try:
-            return self.plugins[plugin_id]
+            return self.plugin_states[plugin_id]
         except KeyError:
             raise ObjectNotFound(plugin_id)
