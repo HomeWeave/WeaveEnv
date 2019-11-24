@@ -242,7 +242,7 @@ class StateHook:
 class MessagingRegistrationHook(StateHook):
     def __init__(self, service: MessagingEnabled):
         self.service = service
-        self.client = None
+        self.client: RPCClient = None
 
     def load(self, plugin_state: PluginState):
         rpc_info = find_rpc(self.service, MESSAGING_PLUGIN_URL, "app_manager")
@@ -385,7 +385,7 @@ class PluginExecutionStateHook(StateHook):
 
     def before_activate(self, plugin_state: PluginState):
         self.before_enable(plugin_state)
-        if not plugin_state.db_plugin.enabled:
+        if not plugin_state.enabled:
             raise PluginLoadError("Plugin is not enabled.")
 
     def on_activate(self, plugin_state: PluginState):
