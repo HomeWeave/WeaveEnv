@@ -2,3 +2,4 @@ pytest
 pylint
 coveralls
 mypy
+-e git+https://github.com/HomeWeave/WeaveServer.git#egg=weaveserver-0.8
