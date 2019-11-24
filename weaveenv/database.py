@@ -1,5 +1,5 @@
-from peewee import SqliteDatabase, Proxy, Model, CharField, BooleanField
-from peewee import ForeignKeyField, CompositeKey
+from peewee import SqliteDatabase, Model, Proxy, CharField  # type: ignore
+from peewee import BooleanField, ForeignKeyField, CompositeKey  # type: ignore
 
 
 proxy = Proxy()
