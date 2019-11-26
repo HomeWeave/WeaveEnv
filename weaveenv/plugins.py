@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Optional
 from uuid import uuid4
@@ -26,6 +26,12 @@ from weaveenv.database import WeaveEnvInstanceData, PluginData
 
 logger = logging.getLogger(__name__)
 MESSAGING_PLUGIN_URL = "https://github.com/HomeWeave/WeaveServer.git"
+VALID_CLASSES = [
+    "http",
+    "dashboard",
+    "datastore"
+]
+
 
 
 def execute_file(path):
@@ -79,6 +85,20 @@ def load_plugin_json(install_path, load_service=True):
     finally:
         sys.path.pop(-1)
 
+    exported_rpc_classes = plugin_info.get("exported_rpc_classes", {})
+    dependencies = plugin_info.get("required_rpc_classes", [])
+
+    invalid_exported_rpcs = [x for x in exported_rpc_classes.keys()
+                             if x not in VALID_CLASSES]
+    if invalid_exported_rpcs:
+        logger.warning("Invalid RPC class exported %s", invalid_exported_rpcs)
+        raise PluginLoadError("Invalid rpc_class exported.")
+
+    invalid_deps = [x for x in dependencies if x not in VALID_CLASSES]
+    if invalid_deps:
+        logger.warning("Invalid dependencies %s", invalid_deps)
+        raise PluginLoadError("Invalid dependencies.")
+
     return {
         "deps": plugin_info.get("deps"),
         "package_path": plugin_info["service"],
@@ -86,6 +106,8 @@ def load_plugin_json(install_path, load_service=True):
         "start_timeout": plugin_info.get("start_timeout", 30),
         "service_name": cls,
         "service_cls": module,
+        "exported_rpc_classes": exported_rpc_classes,
+        "required_rpc_classes": dependencies,
     }
 
 
@@ -150,6 +172,8 @@ class PluginState:
     venv: VirtualEnvManager = None
     service: BaseServicePlugin = None
     start_timeout: int = 30                # Timeout after which to kill start.
+    exported_rpc_classes: Dict[str, str] = field(default_factory=dict)
+    required_rpc_classes: List[str] = field(default_factory=list)
 
     app_manager_client: RPCClient = None
 
@@ -319,11 +343,16 @@ class PluginFilesStateHook(StateHook):
         if not plugin_state.installed_dir.is_dir():
             raise PluginLoadError("Plugin not installed.")
 
+    def before_activate(self, plugin_state: PluginState):
+        self.before_enable(plugin_state)
+
 
 class PluginJsonHook(StateHook):
-    def on_activate(self, plugin_state: PluginState):
+    def before_activate(self, plugin_state: PluginState):
         res = load_plugin_json(plugin_state.installed_dir, load_service=False)
         plugin_state.start_timeout = res["start_timeout"]
+        plugin_state.exported_rpc_classes = res["exported_rpc_classes"]
+        plugin_state.required_rpc_classes = res["required_rpc_classes"]
 
 
 class PluginDBHook(StateHook):

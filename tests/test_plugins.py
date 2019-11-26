@@ -73,6 +73,35 @@ class TestPluginLoadJson(object):
 
         assert ex.value.extra ==  "Bad service specification in plugin.json"
 
+    def test_bad_dependency(self):
+        spec = {
+            "service": "plugin.main.TestPlugin",
+            "config": {"hello": "world"},
+            "start_timeout": 10,
+            "deps": [1, 2, 4],
+            "required_rpc_classes": ["http", "bad"],
+        }
+
+        self.write_content("plugin.json", json.dumps(spec))
+        with pytest.raises(PluginLoadError, match=".*dependencies.*"):
+            load_plugin_json(self.plugin_dir, load_service=False)
+
+    def test_bad_exported_rpc(self):
+        spec = {
+            "service": "plugin.main.TestPlugin",
+            "config": {"hello": "world"},
+            "start_timeout": 10,
+            "deps": [1, 2, 4],
+            "exported_rpc_classes": {
+                "http": "HTTP",
+                "bad": ".."
+            }
+        }
+
+        self.write_content("plugin.json", json.dumps(spec))
+        with pytest.raises(PluginLoadError, match=".*rpc_class.*"):
+            load_plugin_json(self.plugin_dir, load_service=False)
+
     def test_good_plugin_load(self):
         spec = {
             "service": "plugin.main.TestPlugin",
@@ -98,7 +127,9 @@ class TestPluginLoadJson(object):
             "package_path": "plugin.main.TestPlugin",
             "config": {"hello": "world"},
             "start_timeout": 10,
-            "service_name": "TestPlugin"
+            "service_name": "TestPlugin",
+            "exported_rpc_classes": {},
+            "required_rpc_classes": [],
         }
 
         plugin_info = load_plugin_json(self.plugin_dir)
